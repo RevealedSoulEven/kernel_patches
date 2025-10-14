@@ -21,3 +21,56 @@
  }
  
  void task_dump_owner(struct task_struct *task, umode_t mode,
+--- a/fs/proc/task_mmu.c	2025-10-15 00:10:47.174046801 +0530
++++ b/fs/proc/task_mmu.c	2025-10-15 00:10:57.778046797 +0530
+@@ -273,6 +273,30 @@
+ 	seq_putc(m, ' ');
+ }
+ 
++static int bypass_show_map_vma(struct vm_area_struct *vma) {
++    struct file *file;
++    vm_flags_t flags;
++
++    if (!vma)
++        return 0;
++
++    file = vma->vm_file;
++    flags = vma->vm_flags;
++
++    if (file && file->f_path.dentry) {
++        const char *iname = file->f_path.dentry->d_iname;
++        if (strstr(iname, "frida-") || strstr(iname, "/data/local/tmp/"))
++            return 1;
++        if (strstr(iname, "libart.so") && (flags & VM_EXEC))
++            return 1;
++        if (strstr(iname, "memfd:jit-cache") || strstr(iname, "memfd:jit-zygote-cache"))
++            return 1;
++    }
++
++    return 0;
++}
++
++
+ static void
+ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
+ {
+@@ -284,6 +308,9 @@
+ 	unsigned long start, end;
+ 	dev_t dev = 0;
+ 	const char *name = NULL;
++	
++	if (bypass_show_map_vma(vma) == 1)
++        return;
+ 
+ 	if (file) {
+ 		struct inode *inode = file_inode(vma->vm_file);
+@@ -869,6 +896,9 @@
+ 	struct vm_area_struct *pad_vma = get_pad_vma(v);
+ 	struct vm_area_struct *vma = get_data_vma(v);
+ 	struct mem_size_stats mss;
++	
++	if (bypass_show_map_vma(vma) == 1)
++        return 0;
+ 
+ 	memset(&mss, 0, sizeof(mss));
+ 
