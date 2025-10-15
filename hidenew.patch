@@ -41,8 +41,8 @@
 +        const char *iname = file->f_path.dentry->d_iname;
 +        if (strstr(iname, "frida-") || strstr(iname, "/data/local/tmp/"))
 +            return 1;
-+        if (strstr(iname, "libart.so") && (flags & VM_EXEC))
-+            return 1;
++        //if (strstr(iname, "libart.so") && (flags & VM_EXEC))
++            //return 1;
 +        if (strstr(iname, "memfd:jit-cache") || strstr(iname, "memfd:jit-zygote-cache"))
 +            return 1;
 +    }
