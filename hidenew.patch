@@ -90,7 +90,7 @@
 +        return true;
 +
 +    /* Hide known LSPosed/Xposed artifacts (example names) */
-+    if (strstr(name, "liblsposed") || strstr(name, "libxposed_art") || strstr(name, "libxposed") || strstr(name, "libxposed"))
++    if (strstr(name, "liblsposed") || strstr(name, "libxposed_art") || strstr(name, "libxposed") || strstr(name, "xposed"))
 +        return true;
 +
 +    /*
