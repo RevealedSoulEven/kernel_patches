@@ -126,7 +126,7 @@
  	struct mem_size_stats mss;
 +	
 +    if (should_hide_vma_for_reader(vma))
-+        return;
++        return 0;
  
  	memset(&mss, 0, sizeof(mss));
  
