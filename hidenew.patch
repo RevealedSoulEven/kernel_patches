@@ -23,54 +23,117 @@
  void task_dump_owner(struct task_struct *task, umode_t mode,
 --- a/fs/proc/task_mmu.c	2025-10-15 00:10:47.174046801 +0530
 +++ b/fs/proc/task_mmu.c	2025-10-15 00:10:57.778046797 +0530
-@@ -273,6 +273,30 @@
+@@ -27,6 +27,17 @@
+ #include <asm/tlbflush.h>
+ #include "internal.h"
+ 
++#include <linux/uidgid.h>
++
++#define USER_APP_UID_MIN 10000
++
++static bool reader_is_user_app(void)
++{
++    kuid_t uid = current_uid();
++    return (__kuid_val(uid) >= USER_APP_UID_MIN);
++}
++
++
+ #define SEQ_PUT_DEC(str, val) \
+ 		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
+ void task_mem(struct seq_file *m, struct mm_struct *mm)
+@@ -273,6 +284,61 @@
  	seq_putc(m, ' ');
  }
  
-+static int bypass_show_map_vma(struct vm_area_struct *vma) {
++
++static bool reader_is_user_app(void)
++{
++    kuid_t uid = current_uid();
++    return (__kuid_val(uid) >= USER_APP_UID_MIN);
++}
++
++/*
++ * Return true if we should hide this VMA from the current reader.
++ * Only runs hiding logic when the reader is a (Android) user app UID >= USER_APP_UID_MIN.
++ * Uses d_name.name for short-name matching. If you need full-path checks use d_path()
++ * with a bounded buffer (but be careful about reentrancy and allocation constraints).
++ */
++static bool should_hide_vma_for_reader(struct vm_area_struct *vma)
++{
 +    struct file *file;
++    const char *name;
 +    vm_flags_t flags;
 +
 +    if (!vma)
-+        return 0;
++        return false;
++
++    /* Only hide when the reader is a user app */
++    if (!reader_is_user_app())
++        return false;
 +
 +    file = vma->vm_file;
 +    flags = vma->vm_flags;
++    if (!file || !file->f_path.dentry)
++        return false;
 +
-+    if (file && file->f_path.dentry) {
-+        const char *iname = file->f_path.dentry->d_iname;
-+        if (strstr(iname, "frida-") || strstr(iname, "/data/local/tmp/"))
-+            return 1;
-+        //if (strstr(iname, "libart.so") && (flags & VM_EXEC))
-+            //return 1;
-+        if (strstr(iname, "memfd:jit-cache") || strstr(iname, "memfd:jit-zygote-cache"))
-+            return 1;
-+    }
++    name = file->f_path.dentry->d_name.name;
++    if (!name)
++        return false;
 +
-+    return 0;
++    /* Hide frida agent/memfd artifacts */
++    if (strstr(name, "frida-"))
++        return true;
++    if (!strncmp(name, "memfd:", 6) && strstr(name, "frida"))
++        return true;
++        
++    if (strstr(iname, "libart.so") && (flags & VM_EXEC))
++        return true;
++
++    /* Hide known LSPosed/Xposed artifacts (example names) */
++    if (strstr(name, "liblsposed") || strstr(name, "libxposed_art") || strstr(name, "libxposed"))
++        return true;
++
++    /*
++     * Important: DO NOT hide libart.so or generic VM_EXEC mappings.
++     * Hiding libart.so or relabeling all exec regions as [vdso] breaks zygote/ART/JIT.
++     */
++    return false;
 +}
-+
 +
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -284,6 +308,9 @@
+@@ -284,6 +350,9 @@
  	unsigned long start, end;
  	dev_t dev = 0;
  	const char *name = NULL;
 +	
-+	if (bypass_show_map_vma(vma) == 1)
++	if (should_hide_vma_for_reader(vma))
 +        return;
  
  	if (file) {
  		struct inode *inode = file_inode(vma->vm_file);
-@@ -869,6 +896,9 @@
+@@ -320,6 +389,13 @@
+ 			name = "[vdso]";
+ 			goto done;
+ 		}
++		
++		if (should_hide_vma_for_reader(vma)) {
++            if ((flags & VM_EXEC)) {
++                name = "[vdso]";
++                goto done;
++            }
++        }
+ 
+ 		if (vma->vm_start <= mm->brk &&
+ 		    vma->vm_end >= mm->start_brk) {
+@@ -869,6 +945,9 @@
  	struct vm_area_struct *pad_vma = get_pad_vma(v);
  	struct vm_area_struct *vma = get_data_vma(v);
  	struct mem_size_stats mss;
 +	
-+	if (bypass_show_map_vma(vma) == 1)
-+        return 0;
++    if (should_hide_vma_for_reader(vma))
++        return;
  
  	memset(&mss, 0, sizeof(mss));
  
