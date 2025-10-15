@@ -79,11 +79,11 @@
 +    if (!strncmp(name, "memfd:", 6) && strstr(name, "frida"))
 +        return true;
 +        
-+    if (strstr(iname, "libart.so") && (flags & VM_EXEC))
++    if (strstr(name, "libart.so") && (flags & VM_EXEC))
 +        return true;
 +
 +    /* Hide known LSPosed/Xposed artifacts (example names) */
-+    if (strstr(name, "liblsposed") || strstr(name, "libxposed_art") || strstr(name, "libxposed"))
++    if (strstr(name, "liblsposed") || strstr(name, "libxposed_art") || strstr(name, "libxposed") || strstr(name, "xposed"))
 +        return true;
 +
 +    /*
