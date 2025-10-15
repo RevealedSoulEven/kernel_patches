@@ -23,7 +23,7 @@
  void task_dump_owner(struct task_struct *task, umode_t mode,
 --- a/fs/proc/task_mmu.c	2025-10-15 00:10:47.174046801 +0530
 +++ b/fs/proc/task_mmu.c	2025-10-15 00:10:57.778046797 +0530
-@@ -27,6 +27,17 @@
+@@ -27,6 +27,10 @@
  #include <asm/tlbflush.h>
  #include "internal.h"
  
@@ -31,17 +31,10 @@
 +
 +#define USER_APP_UID_MIN 10000
 +
-+static bool reader_is_user_app(void)
-+{
-+    kuid_t uid = current_uid();
-+    return (__kuid_val(uid) >= USER_APP_UID_MIN);
-+}
-+
-+
  #define SEQ_PUT_DEC(str, val) \
  		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
  void task_mem(struct seq_file *m, struct mm_struct *mm)
-@@ -273,6 +284,61 @@
+@@ -273,6 +277,61 @@
  	seq_putc(m, ' ');
  }
  
@@ -86,11 +79,11 @@
 +    if (!strncmp(name, "memfd:", 6) && strstr(name, "frida"))
 +        return true;
 +        
-+    if (strstr(name, "libart.so") && (flags & VM_EXEC))
++    if (strstr(iname, "libart.so") && (flags & VM_EXEC))
 +        return true;
 +
 +    /* Hide known LSPosed/Xposed artifacts (example names) */
-+    if (strstr(name, "liblsposed") || strstr(name, "libxposed_art") || strstr(name, "libxposed") || strstr(name, "xposed"))
++    if (strstr(name, "liblsposed") || strstr(name, "libxposed_art") || strstr(name, "libxposed"))
 +        return true;
 +
 +    /*
@@ -103,7 +96,7 @@
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -284,6 +350,9 @@
+@@ -284,6 +343,9 @@
  	unsigned long start, end;
  	dev_t dev = 0;
  	const char *name = NULL;
@@ -113,7 +106,7 @@
  
  	if (file) {
  		struct inode *inode = file_inode(vma->vm_file);
-@@ -320,6 +389,13 @@
+@@ -320,6 +382,13 @@
  			name = "[vdso]";
  			goto done;
  		}
@@ -127,7 +120,7 @@
  
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
-@@ -869,6 +945,9 @@
+@@ -869,6 +938,9 @@
  	struct vm_area_struct *pad_vma = get_pad_vma(v);
  	struct vm_area_struct *vma = get_data_vma(v);
  	struct mem_size_stats mss;
