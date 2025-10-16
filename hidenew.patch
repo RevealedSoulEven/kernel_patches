@@ -23,14 +23,13 @@
  void task_dump_owner(struct task_struct *task, umode_t mode,
 --- a/fs/proc/task_mmu.c	2025-10-16 07:32:43.296004431 +0530
 +++ b/fs/proc/task_mmu.c	2025-10-15 22:03:30.430999856 +0530
-@@ -349,6 +349,29 @@
+@@ -349,6 +349,28 @@
  
  static int show_map(struct seq_file *m, void *v)
  {
 +
 +    struct proc_maps_private *priv = m->private;
 +    struct task_struct *target = priv->task;
-+    static pid_t last_reader = -1;
 +    char buf[256];
 +
 +    /* Log only once per read — detect first VMA in sequence */
@@ -52,4 +51,12 @@
 +// normal
  	struct vm_area_struct *pad_vma = get_pad_vma(v);
  	struct vm_area_struct *vma = get_data_vma(v);
+ 
+@@ -369,6 +391,7 @@
+ 
+ static int pid_maps_open(struct inode *inode, struct file *file)
+ {
++    static pid_t last_reader = -1;
+ 	return do_maps_open(inode, file, &proc_pid_maps_op);
+ }
  
