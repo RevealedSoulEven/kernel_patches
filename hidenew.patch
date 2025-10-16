@@ -36,7 +36,7 @@
 +    return uid >= 10000;
 +}
 +
-+static inline bool is_self_reader(void)
++static inline bool is_self_reader(struct proc_maps_private *priv)
 +{
 +    return priv->mm && current->mm && (priv->mm == current->mm);
 +}
