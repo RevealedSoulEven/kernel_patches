@@ -64,9 +64,9 @@
 +            current->pid,
 +            from_kuid_munged(&init_user_ns, current_cred()->uid),
 +            target ? target->comm : "?",
-+            target ? task_pid_nr(target) : -1),
++            target ? task_pid_nr(target) : -1,
 +            is_user_app_reader() ? "T" : "F",
-+            is_self_reader(priv) ? "T" : "F";
++            is_self_reader(priv) ? "T" : "F");
 +
 +        pr_info("%s", buf);
 +
