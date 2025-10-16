@@ -23,30 +23,46 @@
  void task_dump_owner(struct task_struct *task, umode_t mode,
 --- a/fs/proc/task_mmu.c	2025-10-15 22:03:09.070999864 +0530
 +++ b/fs/proc/task_mmu.c	2025-10-15 22:03:30.430999856 +0530
-@@ -264,7 +264,7 @@
- 	seq_putc(m, ' ');
- 	seq_putc(m, flags & VM_READ ? 'r' : '-');
- 	seq_putc(m, flags & VM_WRITE ? 'w' : '-');
--	seq_putc(m, flags & VM_EXEC ? 'x' : '-');
-+	seq_putc(m, flags & VM_EXEC ? '-' : '-');
- 	seq_putc(m, flags & VM_MAYSHARE ? 's' : 'p');
- 	seq_put_hex_ll(m, " ", pgoff, 8);
- 	seq_put_hex_ll(m, " ", MAJOR(dev), 2);
-@@ -273,6 +273,23 @@
+@@ -27,6 +27,24 @@
+ #include <asm/tlbflush.h>
+ #include "internal.h"
+ 
++#include <linux/fs.h>
++#include <linux/cred.h>
++#include <linux/uidgid.h>
++
++static void log_to_file(const char *msg)
++{
++    struct file *f;
++    loff_t pos = 0;
++
++    f = filp_open("/data/local/tmp/maps_read_log.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
++    if (IS_ERR(f))
++        return;
++
++    kernel_write(f, msg, strlen(msg), &pos);
++    filp_close(f, NULL);
++}
++
++
+ #define SEQ_PUT_DEC(str, val) \
+ 		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
+ void task_mem(struct seq_file *m, struct mm_struct *mm)
+@@ -273,6 +291,23 @@
  	seq_putc(m, ' ');
  }
  
 +
 +
 + static int bypass_show_map_vma(struct vm_area_struct *vma) {
-+     struct file *file = vma->vm_file;
++     /*struct file *file = vma->vm_file;
 +     vm_flags_t flags = vma->vm_flags;
 +     if (file && file->f_path.dentry && (strstr(file->f_path.dentry->d_iname, "frida")))
 +             return 1;
 +     if (file && file->f_path.dentry && strstr(file->f_path.dentry->d_iname, "lsposed") && (flags & VM_EXEC))
 +             return 0;
 +     if (file && file->f_path.dentry && (strstr(file->f_path.dentry->d_iname, "memfd:jit-cache") || strstr(file->f_path.dentry->d_iname, "memfd:jit-zygote-cache")))
-+             return 1;
++             return 1;*/
 +     return 0;
 + }
 +
@@ -56,7 +72,33 @@
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -285,6 +302,10 @@
+@@ -279,3 +314,25 @@
++
++    static pid_t prev_reader = -1;
++    struct task_struct *target = m->private;
++    char buf[256];
++
++    /* Log every call or skip duplicates — your choice */
++    if (current->pid != prev_reader) {
++        snprintf(buf, sizeof(buf),
++            "Reader: %s(pid=%d,uid=%d) -> Target: %s(pid=%d)\n",
++            current->comm,
++            current->pid,
++            from_kuid_munged(&init_user_ns, current_cred()->uid),
++            target ? target->comm : "?",
++            target ? target->pid : -1
++        );
++
++        pr_info("%s", buf);
++        log_to_file(buf);
++
++        prev_reader = current->pid;
++    }
++    
+ 	struct mm_struct *mm = vma->vm_mm;
+ 	struct file *file = vma->vm_file;
+ 	vm_flags_t flags = vma->vm_flags;
+@@ -285,6 +342,10 @@
  	dev_t dev = 0;
  	const char *name = NULL;
  
@@ -67,19 +109,19 @@
  	if (file) {
  		struct inode *inode = file_inode(vma->vm_file);
  		dev = inode->i_sb->s_dev;
-@@ -321,6 +342,11 @@
+@@ -320,6 +381,11 @@
+ 			name = "[vdso]";
  			goto done;
  		}
- 
++/*
 +        if ((flags & VM_EXEC)) {
 +            name = "[vdso]";
 +	        goto done;
-+        }
-+
++        }*/
+ 
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
- 			name = "[heap]";
-@@ -870,6 +896,10 @@
+@@ -870,6 +936,10 @@
  	struct vm_area_struct *vma = get_data_vma(v);
  	struct mem_size_stats mss;
  
