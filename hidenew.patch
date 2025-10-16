@@ -23,8 +23,12 @@
  void task_dump_owner(struct task_struct *task, umode_t mode,
 --- a/fs/proc/task_mmu.c	2025-10-16 07:32:43.296004431 +0530
 +++ b/fs/proc/task_mmu.c	2025-10-15 22:03:30.430999856 +0530
-@@ -349,6 +349,28 @@
+@@ -347,8 +347,32 @@
+ 	seq_putc(m, '\n');
+ }
  
++static pid_t last_reader = -1;
++
  static int show_map(struct seq_file *m, void *v)
  {
 +
@@ -52,11 +56,11 @@
  	struct vm_area_struct *pad_vma = get_pad_vma(v);
  	struct vm_area_struct *vma = get_data_vma(v);
  
-@@ -369,6 +391,7 @@
+@@ -369,6 +393,7 @@
  
  static int pid_maps_open(struct inode *inode, struct file *file)
  {
-+    static pid_t last_reader = -1;
++    last_reader = -1;
  	return do_maps_open(inode, file, &proc_pid_maps_op);
  }
  
