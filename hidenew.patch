@@ -34,7 +34,7 @@
 +    char buf[256];
 +
 +    /* Log only once per read — detect first VMA in sequence */
-+    if (m->index == 0 && current->pid != last_reader) {
++    if (current->pid != last_reader) {
 +        snprintf(buf, sizeof(buf),
 +            "MAPReader: %s(pid=%d,uid=%d) -> Target: %s(pid=%d)\n",
 +            current->comm,
