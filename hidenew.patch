@@ -65,11 +65,11 @@
 +    vm_flags_t flags = vma->vm_flags;
 +    if (file && file->f_path.dentry && (strstr(file->f_path.dentry->d_iname, "frida-")))
 +        return 1;
-+    if (file && file->f_path.dentry && strstr(file->f_path.dentry->d_iname, "libart.so") && (flags & VM_EXEC))
-+        return 1;
-+    if (file && file->f_path.dentry && (strstr(file->f_path.dentry->d_iname, "memfd:jit-cache") || strstr(file->f_path.dentry->d_iname, "memfd:jit-zygote-cache")))
-+        return 1;
-+    if (file && file->f_path.dentry && (strstr(file->f_path.dentry->d_iname, "lsposed") || strstr(file->f_path.dentry->d_iname, "libart.so")))
++   /* if (file && file->f_path.dentry && strstr(file->f_path.dentry->d_iname, "libart.so") && (flags & VM_EXEC))
++        return 1; */
++  /*  if (file && file->f_path.dentry && (strstr(file->f_path.dentry->d_iname, "memfd:jit-cache") || strstr(file->f_path.dentry->d_iname, "memfd:jit-zygote-cache")))
++        return 1; */
++    if (file && file->f_path.dentry && (strstr(file->f_path.dentry->d_iname, "lsposed") && strstr(file->f_path.dentry->d_iname, "lib")))
 +        return 1;
 +    return 0;
 +}
@@ -126,10 +126,10 @@
  			goto done;
  		}
 +		
-+	    if ((flags & VM_EXEC) && is_need_bypass(priv)) {
++	 /*   if ((flags & VM_EXEC) && is_need_bypass(priv)) {
 +            name = "[vdso]";
 +            goto done;
-+        }
++        }*/
  
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
