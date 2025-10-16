@@ -95,7 +95,7 @@
 +
 +    if (current->pid != last_reader) {
 +        snprintf(buf, sizeof(buf),
-+            "MAPReader: %s(pid=%d,uid=%d) -> Target: %s(pid=%d)    ||||  %s  %s\n",
++            "MAPReader: %s(pid=%d,uid=%d) -> Target: %s(pid=%d)    ||||  %s  %s  -  %s\n",
 +            current->comm,
 +            current->pid,
 +            from_kuid_munged(&init_user_ns, current_cred()->uid),
