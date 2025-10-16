@@ -77,10 +77,16 @@
  #define SEQ_PUT_DEC(str, val) \
  		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
  void task_mem(struct seq_file *m, struct mm_struct *mm)
-@@ -276,6 +323,38 @@
+@@ -273,6 +320,8 @@
+ 	seq_putc(m, ' ');
+ }
+ 
++static pid_t last_reader = -1;
++
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
+@@ -279,3 +328,34 @@
 +
 +    // log only
 +    struct proc_maps_private *priv = m->private;
@@ -105,7 +111,6 @@
 +    }
 +    // long end
 +    
-+    
 +    if (is_need_bypass(priv)) {
 +        if (bypass_show_map_vma(vma) == 1)
 +            return;
@@ -116,7 +121,7 @@
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -320,6 +399,11 @@
+@@ -320,6 +400,11 @@
  			name = "[vdso]";
  			goto done;
  		}
@@ -128,16 +133,7 @@
  
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
-@@ -347,6 +431,8 @@
- 	seq_putc(m, '\n');
- }
- 
-+static pid_t last_reader = -1;
-+
- static int show_map(struct seq_file *m, void *v)
- {
- 	struct vm_area_struct *pad_vma = get_pad_vma(v);
-@@ -369,6 +455,7 @@
+@@ -369,6 +454,7 @@
  
  static int pid_maps_open(struct inode *inode, struct file *file)
  {
@@ -145,7 +141,7 @@
  	return do_maps_open(inode, file, &proc_pid_maps_op);
  }
  
-@@ -866,6 +953,8 @@
+@@ -866,6 +952,8 @@
  
  static int show_smap(struct seq_file *m, void *v)
  {
@@ -154,7 +150,7 @@
  	struct vm_area_struct *pad_vma = get_pad_vma(v);
  	struct vm_area_struct *vma = get_data_vma(v);
  	struct mem_size_stats mss;
-@@ -872,3 +961,13 @@
+@@ -872,3 +960,13 @@
 +	
 +	//bypass check
 +	struct proc_maps_private *priv = m->private;
