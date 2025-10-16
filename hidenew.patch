@@ -23,7 +23,7 @@
  void task_dump_owner(struct task_struct *task, umode_t mode,
 --- a/fs/proc/task_mmu.c	2025-10-16 07:32:43.296004431 +0530
 +++ b/fs/proc/task_mmu.c	2025-10-15 22:03:30.430999856 +0530
-@@ -27,6 +27,20 @@
+@@ -27,6 +27,53 @@
  #include <asm/tlbflush.h>
  #include "internal.h"
  
@@ -38,25 +38,55 @@
 +
 +static inline bool is_self_reader(struct proc_maps_private *priv)
 +{
-+    return priv->mm && current->mm && (priv->mm == current->mm);
++    struct task_struct *target = priv->task;
++    
++    if (!target || !current)
++        return false;
++
++    if (priv->mm && current->mm && (priv->mm == current->mm))
++        return true;
++
++    if (task_tgid_nr(current) == task_tgid_nr(target))
++        return true;
++
++    if (strncmp(current->comm, target->comm, TASK_COMM_LEN) == 0)
++        return true;
++
++    return false;
++}
++
++static inline bool is_need_bypass(struct proc_maps_private *priv)
++{
++    return (is_self_reader(priv) && is_user_app_reader());
++}
++
++static int bypass_show_map_vma(struct vm_area_struct *vma) {
++    struct file *file = vma->vm_file;
++    vm_flags_t flags = vma->vm_flags;
++    if (file && file->f_path.dentry && (strstr(file->f_path.dentry->d_iname, "frida-")))
++        return 1;
++    if (file && file->f_path.dentry && strstr(file->f_path.dentry->d_iname, "libart.so") && (flags & VM_EXEC))
++        return 1;
++    if (file && file->f_path.dentry && (strstr(file->f_path.dentry->d_iname, "memfd:jit-cache") || strstr(file->f_path.dentry->d_iname, "memfd:jit-zygote-cache")))
++        return 1;
++    if (file && file->f_path.dentry && (strstr(file->f_path.dentry->d_iname, "lsposed") || strstr(file->f_path.dentry->d_iname, "libart.so")))
++        return 1;
++    return 0;
 +}
 +
  #define SEQ_PUT_DEC(str, val) \
  		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
  void task_mem(struct seq_file *m, struct mm_struct *mm)
-@@ -347,8 +361,33 @@
- 	seq_putc(m, '\n');
- }
- 
-+static pid_t last_reader = -1;
-+
- static int show_map(struct seq_file *m, void *v)
+@@ -276,6 +323,38 @@
+ static void
+ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
++
++    // log only
 +    struct proc_maps_private *priv = m->private;
 +    struct task_struct *target = priv->task;
 +    char buf[256];
 +
-+    /* Log only once per read — detect first VMA in sequence */
 +    if (current->pid != last_reader) {
 +        snprintf(buf, sizeof(buf),
 +            "MAPReader: %s(pid=%d,uid=%d) -> Target: %s(pid=%d)    ||||  %s  %s\n",
@@ -66,23 +96,75 @@
 +            target ? target->comm : "?",
 +            target ? task_pid_nr(target) : -1,
 +            is_user_app_reader() ? "T" : "F",
-+            is_self_reader(priv) ? "T" : "F");
++            is_self_reader(priv) ? "T" : "F",
++            is_need_bypass(priv) ? "T" : "F");
 +
 +        pr_info("%s", buf);
 +
 +        last_reader = current->pid;
 +    }
++    // long end
++    
++    
++    if (is_need_bypass(priv)) {
++        if (bypass_show_map_vma(vma) == 1)
++            return;
++    }
 +
 +
 +// normal
- 	struct vm_area_struct *pad_vma = get_pad_vma(v);
- 	struct vm_area_struct *vma = get_data_vma(v);
+ 	struct mm_struct *mm = vma->vm_mm;
+ 	struct file *file = vma->vm_file;
+ 	vm_flags_t flags = vma->vm_flags;
+@@ -320,6 +399,11 @@
+ 			name = "[vdso]";
+ 			goto done;
+ 		}
++		
++	    if ((flags & VM_EXEC) && is_need_bypass(priv)) {
++            name = "[vdso]";
++            goto done;
++        }
  
-@@ -369,6 +408,7 @@
+ 		if (vma->vm_start <= mm->brk &&
+ 		    vma->vm_end >= mm->start_brk) {
+@@ -347,6 +431,8 @@
+ 	seq_putc(m, '\n');
+ }
+ 
++static pid_t last_reader = -1;
++
+ static int show_map(struct seq_file *m, void *v)
+ {
+ 	struct vm_area_struct *pad_vma = get_pad_vma(v);
+@@ -369,6 +455,7 @@
  
  static int pid_maps_open(struct inode *inode, struct file *file)
  {
 +    last_reader = -1;
  	return do_maps_open(inode, file, &proc_pid_maps_op);
  }
+ 
+@@ -866,6 +953,8 @@
+ 
+ static int show_smap(struct seq_file *m, void *v)
+ {
++
++    // normal
+ 	struct vm_area_struct *pad_vma = get_pad_vma(v);
+ 	struct vm_area_struct *vma = get_data_vma(v);
+ 	struct mem_size_stats mss;
+@@ -872,3 +961,13 @@
++	
++	//bypass check
++	struct proc_maps_private *priv = m->private;
++	
++	if (is_need_bypass(priv)) {
++        if (bypass_show_map_vma(vma) == 1)
++            return 0;
++    }
++	
++	//normal
+ 
+ 	memset(&mss, 0, sizeof(mss));
  
