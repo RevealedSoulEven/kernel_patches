@@ -69,7 +69,7 @@
 +        return 1; 
 +  /*  if (file && file->f_path.dentry && (strstr(file->f_path.dentry->d_iname, "memfd:jit-cache") || strstr(file->f_path.dentry->d_iname, "memfd:jit-zygote-cache")))
 +        return 1; */
-+    if (file && file->f_path.dentry && (strstr(file->f_path.dentry->d_iname, "lsposed") || strstr(file->f_path.dentry->d_iname, "zygisk")))
++    if (file && file->f_path.dentry && (strstr(file->f_path.dentry->d_iname, "lsposed")) || strstr(file->f_path.dentry->d_iname, "zygisk"))
 +        return 1;
 +    return 0;
 +}
