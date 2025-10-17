@@ -165,7 +165,7 @@
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
 @@ -279,3 +406,36 @@
-+
++    struct proc_maps_private *priv = m->private;
 +    // log only 
 +    /*
 +    struct proc_maps_private *priv = m->private;
