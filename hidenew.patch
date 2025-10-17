@@ -113,7 +113,7 @@
 +    struct file *file = vma->vm_file;
 +    if (!file)
 +        return 0;
-+    char *fullpath = get_file_path_str(file);
++    char *fullname = get_file_path_str(file);
 +    vm_flags_t flags = vma->vm_flags;
 +    /*
 +    if (file && file->f_path.dentry && (strstr(file->f_path.dentry->d_iname, "frida-")))
@@ -134,7 +134,7 @@
 +        return 1;
 +        }
 +    */
-+    if (strstr(fullpath, "zygisk") || strstr(fullpath, "lsposed") || strstr(fullpath, "libart.so")) {
++    if (strstr(fullname, "zygisk") || strstr(fullname, "lsposed") || strstr(fullname, "libart.so")) {
 +        char buf[256]; 
 +        snprintf(buf, sizeof(buf), "MAP_PATCH %s", fullname);
 +        pr_info("%s", buf);
