@@ -138,15 +138,15 @@
 +    vm_flags_t flags = vma->vm_flags;
 +    
 +    if (strstr(fullname, "libart.so") && (flags & VM_EXEC)) {
-+        char buf[256]; 
-+        snprintf(buf, sizeof(buf), "MAP_PATCH %s    -X", fullname);
-+        pr_info("%s", buf);
++        //char buf[256]; 
++       // snprintf(buf, sizeof(buf), "MAP_PATCH %s    -X", fullname);
++      //  pr_info("%s", buf);
 +        return 1;
 +    }
 +    if (strstr(fullname, "lsposed")) {
-+        char buf[256]; 
-+        snprintf(buf, sizeof(buf), "MAP_PATCH %s", fullname);
-+        pr_info("%s", buf);
++       // char buf[256]; 
++     //   snprintf(buf, sizeof(buf), "MAP_PATCH %s", fullname);
++     //   pr_info("%s", buf);
 +        return 1;
 +    }
 +    return 0;
@@ -167,7 +167,7 @@
 @@ -279,3 +406,36 @@
 +
 +    // log only 
-+    
++    /*
 +    struct proc_maps_private *priv = m->private;
 +    struct task_struct *target = priv->task;
 +    char buf[256];
@@ -187,7 +187,7 @@
 +        pr_info("%s", buf);
 +
 +        last_reader = current->pid;
-+    } 
++    } */
 +    // log end
 +    
 +    if (is_need_bypass(priv)) {
@@ -208,9 +208,9 @@
 +		
 +	    if ((flags & VM_EXEC) && is_need_bypass(priv)) {
 +	    // if ((flags & VM_EXEC) && is_need_bypass()) {
-+	        char buf[256];
-+	        snprintf(buf, sizeof(buf), "MAP_PATCH [vdso]");
-+            pr_info("%s", buf);
++	        //char buf[256];
++	       // snprintf(buf, sizeof(buf), "MAP_PATCH [vdso]");
++            //pr_info("%s", buf);
 +            name = "[vdso]";
 +            goto done;
 +        }
