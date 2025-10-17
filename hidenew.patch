@@ -114,8 +114,8 @@
 +    if (!file)
 +        return 0;
 +    char *fullname = get_file_path_str(file);
-+    vm_flags_t flags = vma->vm_flags;
-+    /*
++   /* vm_flags_t flags = vma->vm_flags;
++    
 +    if (file && file->f_path.dentry && (strstr(file->f_path.dentry->d_iname, "frida-")))
 +        return 1;
 +    if (file && file->f_path.dentry && strstr(file->f_path.dentry->d_iname, "libart.so") && (flags & VM_EXEC)) {
