@@ -29,7 +29,7 @@
  
 +#include <linux/cred.h>
 +#include <linux/uidgid.h>
-+
++/*
 +static inline bool is_user_app_reader(void)
 +{
 +    uid_t uid = from_kuid_munged(&init_user_ns, current_cred()->uid);
@@ -59,7 +59,7 @@
 +{
 +    return (is_self_reader(priv) && is_user_app_reader());
 +}
-+
++*/
 +
 +/*static inline bool is_need_bypass(void)
 +{
@@ -113,7 +113,7 @@
 +    struct file *file = vma->vm_file;
 +    if (!file)
 +        return 0;
-+    char *fullname = get_file_path_str(file);
++    char *fullname = get_file_path_str(file); 
 +   /* vm_flags_t flags = vma->vm_flags;
 +    
 +    if (file && file->f_path.dentry && (strstr(file->f_path.dentry->d_iname, "frida-")))
@@ -143,8 +143,8 @@
 +      //  pr_info("%s", buf);
 +        return 1;
 +    }
-+    if (strstr(fullname, "lsposed")) {
-+       // char buf[256]; 
++    if (strstr(fullname, "lsposed") || strstr(fullname, "/dev/zero (deleted)")) {
++     //   char buf[256]; 
 +     //   snprintf(buf, sizeof(buf), "MAP_PATCH %s", fullname);
 +     //   pr_info("%s", buf);
 +        return 1;
@@ -190,23 +190,24 @@
 +    } */
 +    // log end
 +    
-+    if (is_need_bypass(priv)) {
++ //   if (is_need_bypass(priv)) {
 +    // if (is_need_bypass()) {
 +        if (bypass_show_map_vma(vma) == 1)
 +            return;
-+    }
++ //   }
 +
 +
 +// normal
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -320,6 +480,15 @@
+@@ -320,6 +480,16 @@
  			name = "[vdso]";
  			goto done;
  		}
 +		
-+	    if ((flags & VM_EXEC) && is_need_bypass(priv)) {
++		if (flags & VM_EXEC) {
++	   // if ((flags & VM_EXEC) && is_need_bypass(priv)) {
 +	    // if ((flags & VM_EXEC) && is_need_bypass()) {
 +	        //char buf[256];
 +	       // snprintf(buf, sizeof(buf), "MAP_PATCH [vdso]");
@@ -217,7 +218,7 @@
  
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
-@@ -369,6 +538,7 @@
+@@ -369,6 +539,7 @@
  
  static int pid_maps_open(struct inode *inode, struct file *file)
  {
@@ -225,7 +226,7 @@
  	return do_maps_open(inode, file, &proc_pid_maps_op);
  }
  
-@@ -866,6 +1036,8 @@
+@@ -866,6 +1037,8 @@
  
  static int show_smap(struct seq_file *m, void *v)
  {
@@ -234,16 +235,16 @@
  	struct vm_area_struct *pad_vma = get_pad_vma(v);
  	struct vm_area_struct *vma = get_data_vma(v);
  	struct mem_size_stats mss;
-@@ -872,3 +1044,14 @@
+@@ -872,3 +1045,14 @@
 +	
 +	//bypass check
 +	struct proc_maps_private *priv = m->private;
 +	
-+	if (is_need_bypass(priv)) {
++//	if (is_need_bypass(priv)) {
 +	// if (is_need_bypass()) {
 +        if (bypass_show_map_vma(vma) == 1)
 +            return 0;
-+    }
++  //  }
 +	
 +	//normal
  
