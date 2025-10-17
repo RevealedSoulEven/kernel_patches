@@ -23,7 +23,7 @@
  void task_dump_owner(struct task_struct *task, umode_t mode,
 --- a/fs/proc/task_mmu.c	2025-10-16 07:32:43.296004431 +0530
 +++ b/fs/proc/task_mmu.c	2025-10-15 22:03:30.430999856 +0530
-@@ -27,6 +27,122 @@
+@@ -27,6 +27,131 @@
  #include <asm/tlbflush.h>
  #include "internal.h"
  
@@ -134,7 +134,16 @@
 +        return 1;
 +        }
 +    */
-+    if (strstr(fullname, "zygisk") || strstr(fullname, "lsposed") || strstr(fullname, "libart.so")) {
++    
++    vm_flags_t flags = vma->vm_flags;
++    
++    if (strstr(fullname, "libart.so") && (flags & VM_EXEC)) {
++        char buf[256]; 
++        snprintf(buf, sizeof(buf), "MAP_PATCH %s    -X", fullname);
++        pr_info("%s", buf);
++        return 1;
++    }
++    if (strstr(fullname, "lsposed")) {
 +        char buf[256]; 
 +        snprintf(buf, sizeof(buf), "MAP_PATCH %s", fullname);
 +        pr_info("%s", buf);
@@ -146,7 +155,7 @@
  #define SEQ_PUT_DEC(str, val) \
  		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
  void task_mem(struct seq_file *m, struct mm_struct *mm)
-@@ -273,6 +389,8 @@
+@@ -273,6 +398,8 @@
  	seq_putc(m, ' ');
  }
  
@@ -155,7 +164,7 @@
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +397,36 @@
+@@ -279,3 +406,36 @@
 +
 +    // log only 
 +    /*
@@ -192,7 +201,7 @@
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -320,6 +471,15 @@
+@@ -320,6 +480,15 @@
  			name = "[vdso]";
  			goto done;
  		}
@@ -208,7 +217,7 @@
  
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
-@@ -369,6 +529,7 @@
+@@ -369,6 +538,7 @@
  
  static int pid_maps_open(struct inode *inode, struct file *file)
  {
@@ -216,7 +225,7 @@
  	return do_maps_open(inode, file, &proc_pid_maps_op);
  }
  
-@@ -866,6 +1027,8 @@
+@@ -866,6 +1036,8 @@
  
  static int show_smap(struct seq_file *m, void *v)
  {
@@ -225,7 +234,7 @@
  	struct vm_area_struct *pad_vma = get_pad_vma(v);
  	struct vm_area_struct *vma = get_data_vma(v);
  	struct mem_size_stats mss;
-@@ -872,3 +1035,14 @@
+@@ -872,3 +1044,14 @@
 +	
 +	//bypass check
 +	// struct proc_maps_private *priv = m->private;
