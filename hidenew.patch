@@ -239,7 +239,7 @@
 @@ -872,3 +1046,14 @@
 +	
 +	//bypass check
-+	// struct proc_maps_private *priv = m->private;
++	struct proc_maps_private *priv = m->private;
 +	
 +	if (is_need_bypass(priv)) {
 +	// if (is_need_bypass()) {
