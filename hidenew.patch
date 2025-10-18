@@ -54,13 +54,13 @@
 +
 +    return false;
 +} 
-+/* for single app test only
++
 +static inline bool is_need_bypass(struct proc_maps_private *priv)
 +{
 +    return (is_self_reader(priv) && is_user_app_reader());
-+}*/
++}
 +
-+
++// for single app test only
 +/*static inline bool is_need_bypass(void)
 +{
 +    if (strstr(current->comm, "nativecheck"))
@@ -75,7 +75,7 @@
 + * Caller must free the returned buffer with free_page().
 + * Returns NULL if file is NULL or on error.
 + */
-+char *get_file_path_str(struct file *file)
++/*char *get_file_path_str(struct file *file)
 +{
 +    char *buf;
 +    char *path;
@@ -95,17 +95,17 @@
 +        free_page((unsigned long)buf);
 +        return NULL;
 +    }
-+
++*/
 +    /*
 +     * d_path() returns a pointer *inside* buf,
 +     * so we shift the data to start at the buffer’s beginning
 +     * to make free_page() safe later.
 +     */
-+    if (path != buf)
++  /*  if (path != buf)
 +        memmove(buf, path, strlen(path) + 1);
 +
 +    return buf;  // caller must free_page((unsigned long)buf);
-+}
++}*/
 +
 +
 +
