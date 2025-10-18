@@ -23,7 +23,7 @@
  void task_dump_owner(struct task_struct *task, umode_t mode,
 --- a/fs/proc/task_mmu.c	2025-10-16 07:32:43.296004431 +0530
 +++ b/fs/proc/task_mmu.c	2025-10-15 22:03:30.430999856 +0530
-@@ -27,6 +27,130 @@
+@@ -27,6 +27,132 @@
  #include <asm/tlbflush.h>
  #include "internal.h"
  
@@ -75,7 +75,7 @@
 + * Caller must free the returned buffer with free_page().
 + * Returns NULL if file is NULL or on error.
 + */
-+/*char *get_file_path_str(struct file *file)
++char *get_file_path_str(struct file *file)
 +{
 +    char *buf;
 +    char *path;
@@ -95,17 +95,17 @@
 +        free_page((unsigned long)buf);
 +        return NULL;
 +    }
-+*/
++
 +    /*
 +     * d_path() returns a pointer *inside* buf,
 +     * so we shift the data to start at the buffer’s beginning
 +     * to make free_page() safe later.
 +     */
-+  /*  if (path != buf)
++    if (path != buf)
 +        memmove(buf, path, strlen(path) + 1);
 +
 +    return buf;  // caller must free_page((unsigned long)buf);
-+}*/
++}
 +
 +
 +
@@ -125,12 +125,14 @@
 +        return 1; } 
 +  /*  if (file && file->f_path.dentry && (strstr(file->f_path.dentry->d_iname, "memfd:jit-cache") || strstr(file->f_path.dentry->d_iname, "memfd:jit-zygote-cache")))
 +        return 1; */
-+     if (strstr(file->f_path.dentry->d_iname, "arm64-v8a.so")) {
-+   /* char buf[256]; 
++    if (strstr(file->f_path.dentry->d_iname, "arm64-v8a.so")) {
++        char *fullname = get_file_path_str(file);
++        if (strstr(fullname, "lsposed"))
++            return 1;
++   /* char buf[256];
 +    snprintf(buf, sizeof(buf), "MAP_PATCH %s", file->f_path.dentry->d_iname);
 +    pr_info("%s", buf);*/
-+        return 1;
-+        }
++    }
 +    
 +    /*
 +    vm_flags_t flags = vma->vm_flags;
@@ -154,7 +156,7 @@
  #define SEQ_PUT_DEC(str, val) \
  		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
  void task_mem(struct seq_file *m, struct mm_struct *mm)
-@@ -273,6 +397,8 @@
+@@ -273,6 +399,8 @@
  	seq_putc(m, ' ');
  }
  
@@ -163,7 +165,7 @@
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +405,37 @@
+@@ -279,3 +407,37 @@
 +    
 +    // log only 
 +    /*
@@ -201,7 +203,7 @@
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -320,6 +480,16 @@
+@@ -320,6 +482,16 @@
  			name = "[vdso]";
  			goto done;
  		}
@@ -218,7 +220,7 @@
  
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
-@@ -369,6 +539,7 @@
+@@ -369,6 +541,7 @@
  
  static int pid_maps_open(struct inode *inode, struct file *file)
  {
@@ -226,7 +228,7 @@
  	return do_maps_open(inode, file, &proc_pid_maps_op);
  }
  
-@@ -866,6 +1037,8 @@
+@@ -866,6 +1039,8 @@
  
  static int show_smap(struct seq_file *m, void *v)
  {
@@ -235,7 +237,7 @@
  	struct vm_area_struct *pad_vma = get_pad_vma(v);
  	struct vm_area_struct *vma = get_data_vma(v);
  	struct mem_size_stats mss;
-@@ -872,3 +1045,14 @@
+@@ -872,3 +1047,14 @@
 +	
 +	//bypass check
 +	struct proc_maps_private *priv = m->private;
