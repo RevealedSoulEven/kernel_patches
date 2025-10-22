@@ -122,16 +122,16 @@
 +    if (strstr(file->f_path.dentry->d_iname, "frida-"))
 +        return 1;
 +        
-+    if (strstr(file->f_path.dentry->d_iname, "libart.so") && (vma->vm_flags & VM_EXEC)) {
-+        return 1; }
++    /*if (strstr(file->f_path.dentry->d_iname, "libart.so") && (vma->vm_flags & VM_EXEC)) {
++        return 1; }*/
 +
-+  /*  if (strstr(file->f_path.dentry->d_iname, "arm64-v8a.so")) {
++    if (strstr(file->f_path.dentry->d_iname, "arm64-v8a.so")) {
 +        char *fullname = get_file_path_str(file);
 +        if (fullname && strstr(fullname, "lsposed"))
 +            return 1;
 +        if (fullname && strstr(fullname, "zygisk"))
 +            return 1;
-+    }*/
++    }
 +    
 +    if (strstr(file->f_path.dentry->d_iname, "dev/zero")) {
 +        char *fullname = get_file_path_str(file);
