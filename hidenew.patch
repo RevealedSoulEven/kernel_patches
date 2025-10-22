@@ -23,7 +23,7 @@
  void task_dump_owner(struct task_struct *task, umode_t mode,
 --- a/fs/proc/task_mmu.c	2025-10-16 07:32:43.296004431 +0530
 +++ b/fs/proc/task_mmu.c	2025-10-15 22:03:30.430999856 +0530
-@@ -27,6 +27,121 @@
+@@ -27,6 +27,175 @@
  #include <asm/tlbflush.h>
  #include "internal.h"
  
@@ -122,9 +122,12 @@
 +    if (strstr(file->f_path.dentry->d_iname, "frida-"))
 +        return 1;
 +        
-+    /*if (strstr(file->f_path.dentry->d_iname, "libart.so") && (vma->vm_flags & VM_EXEC)) {
-+        return 1; }*/
-+
++    if (strstr(file->f_path.dentry->d_iname, "dev/zero")) {
++        char *fullname = get_file_path_str(file);
++        if (fullname && strstr(fullname, "(deleted)"))
++            return 1;
++    }
++    
 +    if (strstr(file->f_path.dentry->d_iname, "arm64-v8a.so")) {
 +        char *fullname = get_file_path_str(file);
 +        if (fullname && strstr(fullname, "lsposed"))
@@ -132,11 +135,62 @@
 +        if (fullname && strstr(fullname, "zygisk"))
 +            return 1;
 +    }
++        
++    if (strstr(file->f_path.dentry->d_iname, "libart.so") && (vma->vm_flags & VM_EXEC)) {
++        //return 1;
++        
++        struct dentry *dentry;
++    struct inode *inode;
++    unsigned long len;
++    dev_t dev;
++    unsigned long ino;
++    unsigned long pgoff;
++    struct vfsmount *mnt;
++    unsigned long long ctime_sec;
++    char *pathbuf;
++    char *dpath;
++        
++        dentry = file->f_path.dentry;
++    inode  = dentry->d_inode;
++    if (!inode)
++        return 0;
++        
++        
++        ino   = (unsigned long)inode->i_ino;
++    dev   = inode->i_sb ? inode->i_sb->s_dev : 0;
++    mnt   = file->f_path.mnt;
++    pgoff = vma->vm_pgoff;
++    len   = vma->vm_end - vma->vm_start;
 +    
-+    if (strstr(file->f_path.dentry->d_iname, "dev/zero")) {
-+        char *fullname = get_file_path_str(file);
-+        if (fullname && strstr(fullname, "(deleted)"))
-+            return 1;
++#ifdef CONFIG_ENABLE_TIME64
++    ctime_sec = (unsigned long long)inode->i_ctime.tv_sec;
++#else
++    /* fallback if time64 not enabled (older kernels) */
++    ctime_sec = (unsigned long long)inode->i_ctime;
++#endif
++
++    /* try to resolve full path for easier comparison in userspace */
++    pathbuf = kmalloc(PATH_MAX, GFP_KERNEL);
++    if (pathbuf) {
++        dpath = d_path(&file->f_path, pathbuf, PATH_MAX);
++        if (!IS_ERR(dpath)) {
++            pr_info("LIBART_DBG: pid=%d vma=%lx-%lx len=%lu pgoff=0x%lx vm_flags=0x%lx ino=%lu dev=0x%lx mnt=%px ctime=%llu path=%s\n",
++                    current->pid, vma->vm_start, vma->vm_end, len, pgoff, vma->vm_flags,
++                    ino, (unsigned long)dev, mnt, ctime_sec, dpath);
++        } else {
++            pr_info("LIBART_DBG: pid=%d vma=%lx-%lx len=%lu pgoff=0x%lx vm_flags=0x%lx ino=%lu dev=0x%lx mnt=%px ctime=%llu d_path_err=%ld\n",
++                    current->pid, vma->vm_start, vma->vm_end, len, pgoff, vma->vm_flags,
++                    ino, (unsigned long)dev, mnt, ctime_sec, PTR_ERR(dpath));
++            }
++            kfree(pathbuf);
++        } else {
++            pr_info("LIBART_DBG: pid=%d vma=%lx-%lx len=%lu pgoff=0x%lx vm_flags=0x%lx ino=%lu dev=0x%lx mnt=%px ctime=%llu (no-pathbuf)\n",
++                    current->pid, vma->vm_start, vma->vm_end, len, pgoff, vma->vm_flags,
++                    ino, (unsigned long)dev, mnt, ctime_sec);
++        }
++
++    return 0;
++    }
 +    }
 +    
 +    return 0;
@@ -145,7 +199,7 @@
  #define SEQ_PUT_DEC(str, val) \
  		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
  void task_mem(struct seq_file *m, struct mm_struct *mm)
-@@ -273,6 +388,8 @@
+@@ -273,6 +442,8 @@
  	seq_putc(m, ' ');
  }
  
@@ -154,7 +208,7 @@
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +396,36 @@
+@@ -279,3 +450,36 @@
 +    
 +    // log only 
 +    /*
@@ -191,7 +245,7 @@
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -321,6 +471,11 @@
+@@ -321,6 +525,11 @@
  			goto done;
  		}
  
@@ -203,7 +257,7 @@
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
  			name = "[heap]";
-@@ -369,6 +524,7 @@
+@@ -369,6 +578,7 @@
  
  static int pid_maps_open(struct inode *inode, struct file *file)
  {
@@ -211,7 +265,7 @@
  	return do_maps_open(inode, file, &proc_pid_maps_op);
  }
  
-@@ -866,6 +1022,8 @@
+@@ -866,6 +1076,8 @@
  
  static int show_smap(struct seq_file *m, void *v)
  {
@@ -220,7 +274,7 @@
  	struct vm_area_struct *pad_vma = get_pad_vma(v);
  	struct vm_area_struct *vma = get_data_vma(v);
  	struct mem_size_stats mss;
-@@ -872,3 +1030,13 @@
+@@ -872,3 +1084,13 @@
 +	
 +	//bypass check
 +	struct proc_maps_private *priv = m->private;
