@@ -23,7 +23,7 @@
  void task_dump_owner(struct task_struct *task, umode_t mode,
 --- a/fs/proc/task_mmu.c	2025-10-16 07:32:43.296004431 +0530
 +++ b/fs/proc/task_mmu.c	2025-10-15 22:03:30.430999856 +0530
-@@ -27,6 +27,184 @@
+@@ -27,6 +27,185 @@
  #include <asm/tlbflush.h>
  #include "internal.h"
  
@@ -143,10 +143,11 @@
 +        if (vma_len == 7639040)
 +            return 0; // no need bypass
 +        
-+        if (vma_len == 126976)
++        if (vma_len == 126976) {
 +            unsigned long new_end = vma->vm_start + 7639040;
 +            vma->vm_end = new_end;
 +            return 0; // already replaced, no need bypass
++        }
 +        
 +        // bypass other lengths
 +        return 1;
@@ -208,7 +209,7 @@
  #define SEQ_PUT_DEC(str, val) \
  		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
  void task_mem(struct seq_file *m, struct mm_struct *mm)
-@@ -273,6 +451,8 @@
+@@ -273,6 +452,8 @@
  	seq_putc(m, ' ');
  }
  
@@ -217,7 +218,7 @@
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +459,36 @@
+@@ -279,3 +460,36 @@
 +    
 +    // log only 
 +    /*
@@ -254,7 +255,7 @@
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -321,6 +534,11 @@
+@@ -321,6 +535,11 @@
  			goto done;
  		}
  
@@ -266,7 +267,7 @@
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
  			name = "[heap]";
-@@ -369,6 +587,7 @@
+@@ -369,6 +588,7 @@
  
  static int pid_maps_open(struct inode *inode, struct file *file)
  {
@@ -274,7 +275,7 @@
  	return do_maps_open(inode, file, &proc_pid_maps_op);
  }
  
-@@ -866,6 +1085,8 @@
+@@ -866,6 +1086,8 @@
  
  static int show_smap(struct seq_file *m, void *v)
  {
@@ -283,7 +284,7 @@
  	struct vm_area_struct *pad_vma = get_pad_vma(v);
  	struct vm_area_struct *vma = get_data_vma(v);
  	struct mem_size_stats mss;
-@@ -872,3 +1093,13 @@
+@@ -872,3 +1094,13 @@
 +	
 +	//bypass check
 +	struct proc_maps_private *priv = m->private;
