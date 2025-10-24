@@ -14,7 +14,7 @@
 +	if (filename && strncpy_from_user(pathname, filename, sizeof(pathname)-1) > 0) {
 +		pathname[sizeof(pathname)-1] = '\0';
 +		get_task_comm(package_name, task);
-+		pr_info("OPENAT: [%s] PID=%d File='%s' Flags=0x%x\n", package_name, task->pid, pathname, how->flags);
++		pr_info("OPENAT: [%s] PID=%d File='%s' Flags=0x%lx\n", package_name, task->pid, pathname, how->flags);
 +	}
 +	// done log
  
