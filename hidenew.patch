@@ -74,7 +74,7 @@
  int do_truncate(struct user_namespace *mnt_userns, struct dentry *dentry,
  		loff_t length, unsigned int time_attrs, struct file *filp)
  {
-@@ -1328,6 +1395,41 @@
+@@ -1328,6 +1395,31 @@
  	struct open_flags op;
  	int fd = build_open_flags(how, &op);
  	struct filename *tmp;
@@ -84,7 +84,6 @@
 +	char pathname[256];
 +	char package_name[TASK_COMM_LEN];
 +	struct task_struct *task = current;
-+	char exe_path[PATH_MAX];
 +	
 +	if (filename) {
 +        // copy from user first
@@ -100,15 +99,6 @@
 +                }
 +                pr_info("OPENAT: [%s] PID=%d File='%s' Flags=0x%llx\n\n",
 +                        package_name, task->pid, pathname, how->flags);
-+                /*        
-+                if (get_exe_path(task, exe_path, sizeof(exe_path))) {
-+                    pr_info("OPENAT: [%s] PID=%d UID=%d EXE='%s' File='%s' Flags=0x%llx\n",
-+                            package_name, task->pid, __kuid_val(uid), exe_path, pathname, how->flags);
-+                } else {
-+                    pr_info("OPENAT: [%s] PID=%d UID=%d File='%s' Flags=0x%llx (exe_path=unknown)\n",
-+                            package_name, task->pid, __kuid_val(uid), pathname, how->flags);
-+                }*/
-+            
 +            }
 +        }
 +    }
