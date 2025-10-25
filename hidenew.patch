@@ -8,7 +8,7 @@
 +#include <linux/cred.h>
 +
 +// for blocking
-+#define BLOCKLIST_PATH "/data/local/tmp/art_block.txt"
++#define BLOCKLIST_PATH "/data/adb/art_block.txt"
 +#define MAX_BLOCKLIST_READ 2048
 +
 +static bool is_blocked_package(const char *pkg_name)
