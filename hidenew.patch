@@ -10,7 +10,34 @@
  int do_truncate(struct user_namespace *mnt_userns, struct dentry *dentry,
  		loff_t length, unsigned int time_attrs, struct file *filp)
  {
-@@ -1328,6 +1331,31 @@
+@@ -1322,6 +1325,26 @@
+ }
+ EXPORT_SYMBOL(file_open_root);
+ 
++static bool get_exe_path(struct task_struct *task, char *buf, size_t size)
++{
++    struct file *exe;
++    char *path;
++
++    exe = get_task_exe_file(task);
++    if (!exe)
++        return false;
++
++    path = d_path(&exe->f_path, buf, size);
++    fput(exe);
++
++    if (IS_ERR(path))
++        return false;
++
++    // Move string to the start of buffer
++    memmove(buf, path, strlen(path) + 1);
++    return true;
++}
++
+ static long do_sys_openat2(int dfd, const char __user *filename,
+ 			   struct open_how *how)
+ {
+@@ -1328,6 +1351,41 @@
  	struct open_flags op;
  	int fd = build_open_flags(how, &op);
  	struct filename *tmp;
@@ -20,21 +47,31 @@
 +	char pathname[256];
 +	char package_name[TASK_COMM_LEN];
 +	struct task_struct *task = current;
++	char exe_path[PATH_MAX];
 +	
 +	if (filename) {
 +        // copy from user first
 +        if (strncpy_from_user(pathname, filename, sizeof(pathname) - 1) > 0) {
 +            pathname[sizeof(pathname) - 1] = '\0';
 +            if (strstr(pathname, "libart.so")) {
-+                kuid_t uid = current_uid();
-+                if (__kuid_val(uid) >= 10000) {
-+                    get_task_comm(package_name, task);
-+                    pr_info("OPENAT: BLOCKED [%s] PID=%d File='%s' Flags=0x%llx\n",
-+                            package_name, task->pid, pathname, how->flags);
-+                    return -EACCES;
-+                }
++               kuid_t uid = current_uid();
++                //if (__kuid_val(uid) >= 10000) {
++                  //  get_task_comm(package_name, task);
++                    //pr_info("OPENAT: BLOCKED [%s] PID=%d File='%s' Flags=0x%llx\n",
++                            //package_name, task->pid, pathname, how->flags);
++                    //return -EACCES;
++                //}
 +                pr_info("OPENAT: [%s] PID=%d File='%s' Flags=0x%llx\n",
 +                        package_name, task->pid, pathname, how->flags);
++                        
++                if (get_exe_path(task, exe_path, sizeof(exe_path))) {
++                    pr_info("OPENAT: [%s] PID=%d UID=%d EXE='%s' File='%s' Flags=0x%llx\n",
++                            package_name, task->pid, __kuid_val(uid), exe_path, pathname, how->flags);
++                } else {
++                    pr_info("OPENAT: [%s] PID=%d UID=%d File='%s' Flags=0x%llx (exe_path=unknown)\n",
++                            package_name, task->pid, __kuid_val(uid), pathname, how->flags);
++                }
++            
 +            }
 +        }
 +    }
