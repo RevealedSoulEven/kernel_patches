@@ -15,7 +15,7 @@
 +
 +static char blocklist_buf[BLOCKLIST_SIZE];
 +
-+static ssize_t blocklist_rw(struct file *f, char __user *ubuf,
++static ssize_t blocklist_rw(struct file *f, const char __user *ubuf,
 +                            size_t count, loff_t *ppos)
 +{
 +    if (count && count < BLOCKLIST_SIZE) {
