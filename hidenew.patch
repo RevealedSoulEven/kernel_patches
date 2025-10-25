@@ -11,7 +11,7 @@
 +#define BLOCKLIST_PATH "/data/local/tmp/art_block.txt"
 +#define MAX_BLOCKLIST_READ 2048
 +
-+static bool is_blocked_package_simple(const char *pkg_name)
++static bool is_blocked_package(const char *pkg_name)
 +{
 +    struct file *filp;
 +    char *buf = NULL, *line, *p;
