@@ -1,6 +1,16 @@
 --- a/fs/open.c	2025-10-16 07:32:43.296004431 +0530
 +++ b/fs/open.c	2025-10-15 22:03:30.430999856 +0530
-@@ -1328,7 +1328,28 @@
+@@ -37,6 +37,9 @@
+ #include "internal.h"
+ #include <trace/hooks/syscall_check.h>
+ 
++//for uid
++#include <linux/cred.h>
++
+ int do_truncate(struct user_namespace *mnt_userns, struct dentry *dentry,
+ 		loff_t length, unsigned int time_attrs, struct file *filp)
+ {
+@@ -1328,6 +1331,31 @@
  	struct open_flags op;
  	int fd = build_open_flags(how, &op);
  	struct filename *tmp;
@@ -15,20 +25,23 @@
 +        // copy from user first
 +        if (strncpy_from_user(pathname, filename, sizeof(pathname) - 1) > 0) {
 +            pathname[sizeof(pathname) - 1] = '\0';
- 
-+            // now you can safely filter
 +            if (strstr(pathname, "libart.so")) {
-+                get_task_comm(package_name, task);
++                kuid_t uid = current_uid();
++                if (__kuid_val(uid) >= 10000) {
++                    get_task_comm(package_name, task);
++                    pr_info("OPENAT: BLOCKED [%s] PID=%d File='%s' Flags=0x%llx\n",
++                            package_name, task->pid, pathname, how->flags);
++                    return -EACCES;
++                }
 +                pr_info("OPENAT: [%s] PID=%d File='%s' Flags=0x%llx\n",
 +                        package_name, task->pid, pathname, how->flags);
 +            }
 +        }
 +    }
 +	// done log
-+
+ 
  	if (fd)
  		return fd;
- 
 --- a/fs/proc/internal.h	2025-10-16 07:32:43.296004431 +0530
 +++ b/fs/proc/internal.h	2025-10-15 22:03:30.430999856 +0530
 @@ -127,7 +127,19 @@
