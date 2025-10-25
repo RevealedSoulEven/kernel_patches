@@ -1,6 +1,6 @@
 --- a/fs/open.c	2025-10-16 07:32:43.296004431 +0530
 +++ b/fs/open.c	2025-10-15 22:03:30.430999856 +0530
-@@ -37,6 +37,77 @@
+@@ -37,6 +37,73 @@
  #include "internal.h"
  #include <trace/hooks/syscall_check.h>
  
@@ -11,13 +11,12 @@
 +#define BLOCKLIST_PATH "/data/local/tmp/art_block.txt"
 +#define MAX_BLOCKLIST_READ 2048
 +
-+static bool is_blocked_package(const char *pkg_name)
++static bool is_blocked_package_simple(const char *pkg_name)
 +{
 +    struct file *filp;
 +    char *buf = NULL, *line, *p;
 +    loff_t pos = 0;
 +    ssize_t read_len;
-+    mm_segment_t old_fs;
 +    bool match = false;
 +
 +    if (!pkg_name || !*pkg_name)
@@ -42,10 +41,8 @@
 +        return false;
 +    }
 +
-+    old_fs = get_fs();
-+    set_fs(KERNEL_DS);
++    // Direct kernel_read — no need for set_fs/get_fs
 +    read_len = kernel_read(filp, buf, MAX_BLOCKLIST_READ - 1, &pos);
-+    set_fs(old_fs);
 +    filp_close(filp, NULL);
 +
 +    if (read_len <= 0)
@@ -55,11 +52,9 @@
 +    p = buf;
 +
 +    while ((line = strsep(&p, "\n")) != NULL) {
-+        // skip empty or comment lines
 +        if (!*line || *line == '#')
 +            continue;
 +
-+        // trim whitespace
 +        while (*line == ' ' || *line == '\t') line++;
 +
 +        if (*line && strstr(pkg_name, line)) {
@@ -73,12 +68,13 @@
 +    return match;
 +}
 +
++
 +// original
 +
  int do_truncate(struct user_namespace *mnt_userns, struct dentry *dentry,
  		loff_t length, unsigned int time_attrs, struct file *filp)
  {
-@@ -1328,6 +1399,41 @@
+@@ -1328,6 +1395,41 @@
  	struct open_flags op;
  	int fd = build_open_flags(how, &op);
  	struct filename *tmp;
