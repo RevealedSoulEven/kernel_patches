@@ -1,43 +1,84 @@
 --- a/fs/open.c	2025-10-16 07:32:43.296004431 +0530
 +++ b/fs/open.c	2025-10-15 22:03:30.430999856 +0530
-@@ -37,6 +37,9 @@
+@@ -37,6 +37,77 @@
  #include "internal.h"
  #include <trace/hooks/syscall_check.h>
  
-+//for uid
++// for uid
 +#include <linux/cred.h>
++
++// for blocking
++#define BLOCKLIST_PATH "/data/local/tmp/art_block.txt"
++#define MAX_BLOCKLIST_READ 2048
++
++static bool is_blocked_package(const char *pkg_name)
++{
++    struct file *filp;
++    char *buf = NULL, *line, *p;
++    loff_t pos = 0;
++    ssize_t read_len;
++    mm_segment_t old_fs;
++    bool match = false;
++
++    if (!pkg_name || !*pkg_name)
++        return false;
++
++    filp = filp_open(BLOCKLIST_PATH, O_RDONLY, 0);
++    if (IS_ERR(filp)) {
++        // Create file if missing
++        filp = filp_open(BLOCKLIST_PATH, O_WRONLY | O_CREAT, 0644);
++        if (!IS_ERR(filp)) {
++            loff_t wp = 0;
++            const char *msg = "# Add package substrings here, one per line\n";
++            kernel_write(filp, msg, strlen(msg), &wp);
++            filp_close(filp, NULL);
++        }
++        return false;
++    }
++
++    buf = kzalloc(MAX_BLOCKLIST_READ, GFP_KERNEL);
++    if (!buf) {
++        filp_close(filp, NULL);
++        return false;
++    }
++
++    old_fs = get_fs();
++    set_fs(KERNEL_DS);
++    read_len = kernel_read(filp, buf, MAX_BLOCKLIST_READ - 1, &pos);
++    set_fs(old_fs);
++    filp_close(filp, NULL);
++
++    if (read_len <= 0)
++        goto out;
++
++    buf[read_len] = '\0';
++    p = buf;
++
++    while ((line = strsep(&p, "\n")) != NULL) {
++        // skip empty or comment lines
++        if (!*line || *line == '#')
++            continue;
++
++        // trim whitespace
++        while (*line == ' ' || *line == '\t') line++;
++
++        if (*line && strstr(pkg_name, line)) {
++            match = true;
++            break;
++        }
++    }
++
++out:
++    kfree(buf);
++    return match;
++}
++
++// original
 +
  int do_truncate(struct user_namespace *mnt_userns, struct dentry *dentry,
  		loff_t length, unsigned int time_attrs, struct file *filp)
  {
-@@ -1322,6 +1325,26 @@
- }
- EXPORT_SYMBOL(file_open_root);
- 
-+static bool get_exe_path(struct task_struct *task, char *buf, size_t size)
-+{
-+    struct file *exe;
-+    char *path;
-+
-+    exe = get_task_exe_file(task);
-+    if (!exe)
-+        return false;
-+
-+    path = d_path(&exe->f_path, buf, size);
-+    fput(exe);
-+
-+    if (IS_ERR(path))
-+        return false;
-+
-+    // Move string to the start of buffer
-+    memmove(buf, path, strlen(path) + 1);
-+    return true;
-+}
-+
- static long do_sys_openat2(int dfd, const char __user *filename,
- 			   struct open_how *how)
- {
-@@ -1328,6 +1351,46 @@
+@@ -1328,6 +1399,41 @@
  	struct open_flags op;
  	int fd = build_open_flags(how, &op);
  	struct filename *tmp;
@@ -55,20 +96,15 @@
 +            pathname[sizeof(pathname) - 1] = '\0';
 +            if (strstr(pathname, "libart.so")) {
 +                kuid_t uid = current_uid();
-+                if (get_exe_path(task, exe_path, sizeof(exe_path))) {
-+                  if (__kuid_val(uid) >= 10000 &&
-+                    strstr(exe_path, "app_process64") &&
-+                        !(strstr(package_name, "zygote") ||
-+                            strstr(package_name, "system_server"))) {
-+                                get_task_comm(package_name, task);
-+                                pr_info("OPENAT: BLOCKED [%s] PID=%d File='%s' Flags=0x%llx\n",
-+                                    package_name, task->pid, pathname, how->flags);
-+                                return -EACCES;
-+                  }
-+                }
-+              /*  pr_info("OPENAT: [%s] PID=%d File='%s' Flags=0x%llx\n",
++                get_task_comm(package_name, task);
++                if (__kuid_val(uid) >= 10000 && is_blocked_package(package_name)) {
++                    pr_info("OPENAT: BLOCKED [%s] PID=%d File='%s' Flags=0x%llx\n\n",
 +                        package_name, task->pid, pathname, how->flags);
-+                        
++                    return -EACCES;
++                }
++                pr_info("OPENAT: [%s] PID=%d File='%s' Flags=0x%llx\n\n",
++                        package_name, task->pid, pathname, how->flags);
++                /*        
 +                if (get_exe_path(task, exe_path, sizeof(exe_path))) {
 +                    pr_info("OPENAT: [%s] PID=%d UID=%d EXE='%s' File='%s' Flags=0x%llx\n",
 +                            package_name, task->pid, __kuid_val(uid), exe_path, pathname, how->flags);
