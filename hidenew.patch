@@ -1,6 +1,6 @@
 --- a/fs/open.c	2025-10-16 07:32:43.296004431 +0530
 +++ b/fs/open.c	2025-10-15 22:03:30.430999856 +0530
-@@ -37,6 +37,73 @@
+@@ -37,6 +37,47 @@
  #include "internal.h"
  #include <trace/hooks/syscall_check.h>
  
@@ -8,65 +8,39 @@
 +#include <linux/cred.h>
 +
 +// for blocking
-+#define BLOCKLIST_PATH "/data/adb/art_block.txt"
-+#define MAX_BLOCKLIST_READ 2048
++#include <linux/proc_fs.h>
 +
-+static bool is_blocked_package(const char *pkg_name)
++#define BLOCKLIST_FILE "arr_blocklist"
++#define BLOCKLIST_SIZE 1024
++
++static char blocklist_buf[BLOCKLIST_SIZE];
++
++static ssize_t blocklist_rw(struct file *f, char __user *ubuf,
++                            size_t count, loff_t *ppos)
 +{
-+    struct file *filp;
-+    char *buf = NULL, *line, *p;
-+    loff_t pos = 0;
-+    ssize_t read_len;
-+    bool match = false;
-+
-+    if (!pkg_name || !*pkg_name)
-+        return false;
-+
-+    filp = filp_open(BLOCKLIST_PATH, O_RDONLY, 0);
-+    if (IS_ERR(filp)) {
-+        // Create file if missing
-+        filp = filp_open(BLOCKLIST_PATH, O_WRONLY | O_CREAT, 0644);
-+        if (!IS_ERR(filp)) {
-+            loff_t wp = 0;
-+            const char *msg = "# Add package substrings here, one per line\n";
-+            kernel_write(filp, msg, strlen(msg), &wp);
-+            filp_close(filp, NULL);
-+        }
-+        return false;
++    if (count && count < BLOCKLIST_SIZE) {
++        if (copy_from_user(blocklist_buf, ubuf, count))
++            return -EFAULT;
++        blocklist_buf[count] = '\0';
++        pr_info("OPENAT: INFO arr_blocklist updated: %s\n", blocklist_buf);
++        return count;
 +    }
-+
-+    buf = kzalloc(MAX_BLOCKLIST_READ, GFP_KERNEL);
-+    if (!buf) {
-+        filp_close(filp, NULL);
-+        return false;
-+    }
-+
-+    // Direct kernel_read — no need for set_fs/get_fs
-+    read_len = kernel_read(filp, buf, MAX_BLOCKLIST_READ - 1, &pos);
-+    filp_close(filp, NULL);
-+
-+    if (read_len <= 0)
-+        goto out;
-+
-+    buf[read_len] = '\0';
-+    p = buf;
-+
-+    while ((line = strsep(&p, "\n")) != NULL) {
-+        if (!*line || *line == '#')
-+            continue;
-+
-+        while (*line == ' ' || *line == '\t') line++;
-+
-+        if (*line && strstr(pkg_name, line)) {
-+            match = true;
-+            break;
-+        }
-+    }
-+
-+out:
-+    kfree(buf);
-+    return match;
++    return simple_read_from_buffer(ubuf, count, ppos,
++                                   blocklist_buf, strlen(blocklist_buf));
 +}
++
++static const struct proc_ops blocklist_ops = {
++    .proc_read  = blocklist_rw,
++    .proc_write = blocklist_rw,
++};
++
++static int __init blocklist_init(void)
++{
++    proc_create(BLOCKLIST_FILE, 0666, NULL, &blocklist_ops);
++    pr_info("OPENAT: INFO /proc/%s ready\n", BLOCKLIST_FILE);
++    return 0;
++}
++late_initcall(blocklist_init);
 +
 +
 +// original
@@ -74,7 +48,7 @@
  int do_truncate(struct user_namespace *mnt_userns, struct dentry *dentry,
  		loff_t length, unsigned int time_attrs, struct file *filp)
  {
-@@ -1328,6 +1395,31 @@
+@@ -1328,6 +1369,31 @@
  	struct open_flags op;
  	int fd = build_open_flags(how, &op);
  	struct filename *tmp;
@@ -92,7 +66,7 @@
 +            if (strstr(pathname, "libart.so")) {
 +                kuid_t uid = current_uid();
 +                get_task_comm(package_name, task);
-+                if (__kuid_val(uid) >= 10000 && is_blocked_package(package_name)) {
++                if (__kuid_val(uid) >= 10000 && strstr(blocklist_buf, package_name)) {
 +                    pr_info("OPENAT: BLOCKED [%s] PID=%d File='%s' Flags=0x%llx\n\n",
 +                        package_name, task->pid, pathname, how->flags);
 +                    return -EACCES;
