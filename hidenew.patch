@@ -37,7 +37,7 @@
  static long do_sys_openat2(int dfd, const char __user *filename,
  			   struct open_how *how)
  {
-@@ -1328,6 +1351,41 @@
+@@ -1328,6 +1351,46 @@
  	struct open_flags op;
  	int fd = build_open_flags(how, &op);
  	struct filename *tmp;
@@ -54,14 +54,19 @@
 +        if (strncpy_from_user(pathname, filename, sizeof(pathname) - 1) > 0) {
 +            pathname[sizeof(pathname) - 1] = '\0';
 +            if (strstr(pathname, "libart.so")) {
-+               kuid_t uid = current_uid();
-+                //if (__kuid_val(uid) >= 10000) {
-+                  //  get_task_comm(package_name, task);
-+                    //pr_info("OPENAT: BLOCKED [%s] PID=%d File='%s' Flags=0x%llx\n",
-+                            //package_name, task->pid, pathname, how->flags);
-+                    //return -EACCES;
-+                //}
-+                pr_info("OPENAT: [%s] PID=%d File='%s' Flags=0x%llx\n",
++                kuid_t uid = current_uid();
++                if (get_exe_path(task, exe_path, sizeof(exe_path))) {
++                  if (__kuid_val(uid) >= 10000 &&
++                    strstr(exe_path, "app_process64") &&
++                        !(strstr(package_name, "zygote") ||
++                            strstr(package_name, "system_server"))) {
++                                get_task_comm(package_name, task);
++                                pr_info("OPENAT: BLOCKED [%s] PID=%d File='%s' Flags=0x%llx\n",
++                                    package_name, task->pid, pathname, how->flags);
++                                return -EACCES;
++                  }
++                }
++              /*  pr_info("OPENAT: [%s] PID=%d File='%s' Flags=0x%llx\n",
 +                        package_name, task->pid, pathname, how->flags);
 +                        
 +                if (get_exe_path(task, exe_path, sizeof(exe_path))) {
@@ -70,7 +75,7 @@
 +                } else {
 +                    pr_info("OPENAT: [%s] PID=%d UID=%d File='%s' Flags=0x%llx (exe_path=unknown)\n",
 +                            package_name, task->pid, __kuid_val(uid), pathname, how->flags);
-+                }
++                }*/
 +            
 +            }
 +        }
