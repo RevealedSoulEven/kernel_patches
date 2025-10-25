@@ -1,6 +1,6 @@
 --- a/fs/open.c	2025-10-16 07:32:43.296004431 +0530
 +++ b/fs/open.c	2025-10-15 22:03:30.430999856 +0530
-@@ -37,6 +37,47 @@
+@@ -37,6 +37,54 @@
  #include "internal.h"
  #include <trace/hooks/syscall_check.h>
  
@@ -15,8 +15,8 @@
 +
 +static char blocklist_buf[BLOCKLIST_SIZE];
 +
-+static ssize_t blocklist_rw(struct file *f, const char __user *ubuf,
-+                            size_t count, loff_t *ppos)
++static ssize_t blocklist_write(struct file *f, const char __user *ubuf,
++                               size_t count, loff_t *ppos)
 +{
 +    if (count && count < BLOCKLIST_SIZE) {
 +        if (copy_from_user(blocklist_buf, ubuf, count))
@@ -25,13 +25,19 @@
 +        pr_info("OPENAT: INFO arr_blocklist updated: %s\n", blocklist_buf);
 +        return count;
 +    }
++    return -EINVAL;
++}
++
++static ssize_t blocklist_read(struct file *f, char __user *ubuf,
++                              size_t count, loff_t *ppos)
++{
 +    return simple_read_from_buffer(ubuf, count, ppos,
 +                                   blocklist_buf, strlen(blocklist_buf));
 +}
 +
 +static const struct proc_ops blocklist_ops = {
-+    .proc_read  = blocklist_rw,
-+    .proc_write = blocklist_rw,
++    .proc_read  = blocklist_read,
++    .proc_write = blocklist_write,
 +};
 +
 +static int __init blocklist_init(void)
@@ -43,12 +49,13 @@
 +late_initcall(blocklist_init);
 +
 +
++
 +// original
 +
  int do_truncate(struct user_namespace *mnt_userns, struct dentry *dentry,
  		loff_t length, unsigned int time_attrs, struct file *filp)
  {
-@@ -1328,6 +1369,31 @@
+@@ -1328,6 +1376,31 @@
  	struct open_flags op;
  	int fd = build_open_flags(how, &op);
  	struct filename *tmp;
