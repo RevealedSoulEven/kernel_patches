@@ -1,92 +1,3 @@
---- a/fs/open.c	2025-10-16 07:32:43.296004431 +0530
-+++ b/fs/open.c	2025-10-15 22:03:30.430999856 +0530
-@@ -37,6 +37,54 @@
- #include "internal.h"
- #include <trace/hooks/syscall_check.h>
- 
-+// for uid
-+#include <linux/cred.h>
-+
-+// for blocking
-+#include <linux/proc_fs.h>
-+
-+#define BLOCKLIST_FILE "arr_blocklist"
-+#define BLOCKLIST_SIZE 1024
-+
-+static char blocklist_buf[BLOCKLIST_SIZE];
-+
-+static ssize_t blocklist_write(struct file *f, const char __user *ubuf,
-+                               size_t count, loff_t *ppos)
-+{
-+    if (count && count < BLOCKLIST_SIZE) {
-+        if (copy_from_user(blocklist_buf, ubuf, count))
-+            return -EFAULT;
-+        blocklist_buf[count] = '\0';
-+        pr_info("OPENAT: INFO arr_blocklist updated: %s\n", blocklist_buf);
-+        return count;
-+    }
-+    return -EINVAL;
-+}
-+
-+static ssize_t blocklist_read(struct file *f, char __user *ubuf,
-+                              size_t count, loff_t *ppos)
-+{
-+    return simple_read_from_buffer(ubuf, count, ppos,
-+                                   blocklist_buf, strlen(blocklist_buf));
-+}
-+
-+static const struct proc_ops blocklist_ops = {
-+    .proc_read  = blocklist_read,
-+    .proc_write = blocklist_write,
-+};
-+
-+static int __init blocklist_init(void)
-+{
-+    proc_create(BLOCKLIST_FILE, 0666, NULL, &blocklist_ops);
-+    pr_info("OPENAT: INFO /proc/%s ready\n", BLOCKLIST_FILE);
-+    return 0;
-+}
-+late_initcall(blocklist_init);
-+
-+
-+
-+// original
-+
- int do_truncate(struct user_namespace *mnt_userns, struct dentry *dentry,
- 		loff_t length, unsigned int time_attrs, struct file *filp)
- {
-@@ -1328,6 +1376,31 @@
- 	struct open_flags op;
- 	int fd = build_open_flags(how, &op);
- 	struct filename *tmp;
-+	
-+	// logging
-+	
-+	char pathname[256];
-+	char package_name[TASK_COMM_LEN];
-+	struct task_struct *task = current;
-+	
-+	if (filename) {
-+        // copy from user first
-+        if (strncpy_from_user(pathname, filename, sizeof(pathname) - 1) > 0) {
-+            pathname[sizeof(pathname) - 1] = '\0';
-+            if (strstr(pathname, "libart.so")) {
-+                kuid_t uid = current_uid();
-+                get_task_comm(package_name, task);
-+                if (__kuid_val(uid) >= 10000 && strstr(blocklist_buf, package_name)) {
-+                    pr_info("OPENAT: BLOCKED [%s] PID=%d File='%s' Flags=0x%llx\n\n",
-+                        package_name, task->pid, pathname, how->flags);
-+                    return -EACCES;
-+                }
-+                pr_info("OPENAT: [%s] PID=%d File='%s' Flags=0x%llx\n\n",
-+                        package_name, task->pid, pathname, how->flags);
-+            }
-+        }
-+    }
-+	// done log
- 
- 	if (fd)
- 		return fd;
 --- a/fs/proc/internal.h	2025-10-16 07:32:43.296004431 +0530
 +++ b/fs/proc/internal.h	2025-10-15 22:03:30.430999856 +0530
 @@ -127,7 +127,19 @@
@@ -112,7 +23,7 @@
  void task_dump_owner(struct task_struct *task, umode_t mode,
 --- a/fs/proc/task_mmu.c	2025-10-16 07:32:43.296004431 +0530
 +++ b/fs/proc/task_mmu.c	2025-10-15 22:03:30.430999856 +0530
-@@ -27,6 +27,185 @@
+@@ -27,6 +27,115 @@
  #include <asm/tlbflush.h>
  #include "internal.h"
  
@@ -149,21 +60,7 @@
 +    return (is_self_reader(priv) && is_user_app_reader());
 +}
 +
-+// for single app test only
-+/*static inline bool is_need_bypass2(void)
-+{
-+    if (strstr(current->comm, "nativecheck"))
-+        return true;
-+    return false;
-+}*/
 +
-+
-+
-+/*
-+ * get_file_path_str() - returns the full path of a struct file as a string
-+ * Caller must free the returned buffer with free_page().
-+ * Returns NULL if file is NULL or on error.
-+ */
 +char *get_file_path_str(struct file *file)
 +{
 +    char *buf;
@@ -186,15 +83,11 @@
 +        free_page((unsigned long)buf);
 +        return NULL;
 +    }
-+
-+    // d_path() returns a pointer *inside* buf,
-+    // so we shift the data to start at the buffer’s beginning
-+    // to make free_page() safe later.
 +     
 +    if (path != buf)
 +        memmove(buf, path, strlen(path) + 1);
 +
-+    return buf;  // caller must free_page((unsigned long)buf);
++    return buf;
 +}
 +
 +
@@ -226,13 +119,11 @@
 +    }
 +        
 +    if (strstr(file->f_path.dentry->d_iname, "libart.so") && (vma->vm_flags & VM_EXEC)) {
-+        //return 1;
 +        unsigned long vma_len = vma->vm_end - vma->vm_start;
-+        
 +        if (vma_len == 7639040)
 +            return 0; // no need bypass
 +        
-+        if (vma_len == 126976) {
++        if (vma_len == 126976) { // first split size
 +            unsigned long new_end = vma->vm_start + 7639040;
 +            vma->vm_end = new_end;
 +            return 0; // already replaced, no need bypass
@@ -241,56 +132,6 @@
 +        // bypass other lengths
 +        return 1;
 +    }
-+        
-+        /*
-+        struct dentry *dentry;
-+    struct inode *inode;
-+    unsigned long len;
-+    dev_t dev;
-+    unsigned long ino;
-+    unsigned long pgoff;
-+    struct vfsmount *mnt;
-+    unsigned long long ctime_sec;
-+    char *pathbuf;
-+    char *dpath;
-+        
-+        dentry = file->f_path.dentry;
-+    inode  = dentry->d_inode;
-+    if (!inode) {
-+        return 0;
-+        }
-+        
-+    ino   = (unsigned long)inode->i_ino;
-+    dev   = inode->i_sb ? inode->i_sb->s_dev : 0;
-+    mnt   = file->f_path.mnt;
-+    pgoff = vma->vm_pgoff;
-+    len   = vma->vm_end - vma->vm_start;
-+    ctime_sec = inode->i_ctime.tv_sec;
-+
-+pathbuf = kmalloc(PATH_MAX, GFP_KERNEL);
-+    if (pathbuf) {
-+        dpath = d_path(&file->f_path, pathbuf, PATH_MAX);
-+        if (!IS_ERR(dpath)) {
-+            pr_info("LIBART_DBG: pid=%d vma=%lx-%lx len=%lu pgoff=%lx vm_flags=%lx ino=%lu dev=%lx mnt=%px ctime=%llu path=%s\n",
-+                    current->pid, vma->vm_start, vma->vm_end, len, pgoff, vma->vm_flags,
-+                    ino, (unsigned long)dev, mnt, ctime_sec, dpath);
-+        } else {
-+            pr_info("LIBART_DBG: pid=%d vma=%lx-%lx len=%lu pgoff=%lx vm_flags=%lx ino=%lu dev=%lx mnt=%px ctime=%llu path_err=%ld\n",
-+                    current->pid, vma->vm_start, vma->vm_end, len, pgoff, vma->vm_flags,
-+                    ino, (unsigned long)dev, mnt, ctime_sec, PTR_ERR(dpath));
-+        }
-+        kfree(pathbuf);
-+    } else {
-+        pr_info("LIBART_DBG: pid=%d vma=%lx-%lx len=%lu pgoff=%lx vm_flags=%lx ino=%lu dev=%lx mnt=%px ctime=%llu (no-pathbuf)\n",
-+                current->pid, vma->vm_start, vma->vm_end, len, pgoff, vma->vm_flags,
-+                ino, (unsigned long)dev, mnt, ctime_sec);
-+    }
-+    
-+    // keep only the main 7MB region, hide everything else
-+    if (len < (7UL * 1024 * 1024) || len > (8UL * 1024 * 1024))
-+        return 1;
-+    }
-+    */
 +    
 +    return 0;
 +}
@@ -298,53 +139,22 @@
  #define SEQ_PUT_DEC(str, val) \
  		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
  void task_mem(struct seq_file *m, struct mm_struct *mm)
-@@ -273,6 +452,8 @@
- 	seq_putc(m, ' ');
- }
- 
-+// static pid_t last_reader = -1;
-+
+@@ -276,6 +385,14 @@
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +460,36 @@
-+    
-+    // log only 
-+    /*
-+    struct proc_maps_private *priv = m->private;
-+    struct task_struct *target = priv->task;
-+    char buf[256];
 +
-+    if (current->pid != last_reader) {
-+        snprintf(buf, sizeof(buf),
-+            "MAPReader: %s(pid=%d,uid=%d) -> Target: %s(pid=%d)    ||||  %s  %s  -  %s\n",
-+            current->comm,
-+            current->pid,
-+            from_kuid_munged(&init_user_ns, current_cred()->uid),
-+            target ? target->comm : "?",
-+            target ? task_pid_nr(target) : -1,
-+            is_user_app_reader() ? "T" : "F",
-+            is_self_reader(priv) ? "T" : "F",
-+            is_need_bypass(priv) ? "T" : "F");
-+
-+        pr_info("%s", buf);
-+
-+        last_reader = current->pid;
-+    } */
-+    // log end
-+    
 +    struct proc_maps_private *priv = m->private;
 +    if (is_need_bypass(priv)) {
 +        if (bypass_show_map_vma(vma) == 1)
 +            return;
 +    }
 +
-+
 +// normal
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -321,6 +535,11 @@
+@@ -321,6 +438,11 @@
  			goto done;
  		}
  
@@ -356,7 +166,7 @@
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
  			name = "[heap]";
-@@ -369,6 +588,7 @@
+@@ -369,6 +491,7 @@
  
  static int pid_maps_open(struct inode *inode, struct file *file)
  {
@@ -364,7 +174,7 @@
  	return do_maps_open(inode, file, &proc_pid_maps_op);
  }
  
-@@ -866,6 +1086,8 @@
+@@ -866,6 +989,8 @@
  
  static int show_smap(struct seq_file *m, void *v)
  {
@@ -373,7 +183,7 @@
  	struct vm_area_struct *pad_vma = get_pad_vma(v);
  	struct vm_area_struct *vma = get_data_vma(v);
  	struct mem_size_stats mss;
-@@ -872,3 +1094,13 @@
+@@ -872,3 +997,13 @@
 +	
 +	//bypass check
 +	struct proc_maps_private *priv = m->private;
