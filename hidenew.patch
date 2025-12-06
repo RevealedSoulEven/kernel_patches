@@ -1,0 +1,199 @@
+--- a/fs/proc/internal.h	2025-11-14 12:12:29.898791264 +0530
++++ b/fs/proc/internal.h	2025-10-15 22:03:30.430999856 +0530
+@@ -127,7 +127,19 @@
+ 
+ static inline struct task_struct *get_proc_task(const struct inode *inode)
+ {
+-	return get_pid_task(proc_pid(inode), PIDTYPE_PID);
++	struct task_struct * p = get_pid_task(proc_pid(inode), PIDTYPE_PID);
++    char tcomm[TASK_COMM_LEN];
++    if (!p)
++        return NULL;
++    
++    if (p->flags & PF_WQ_WORKER)
++        wq_worker_comm(tcomm, sizeof(tcomm), p);
++    else
++        __get_task_comm(tcomm, sizeof(tcomm), p);
++    
++    if (strstr(tcomm, "frida") || strstr(tcomm, "gmain") || strstr(tcomm, "gum-js") || strstr(tcomm, "linjector") ||  strstr(tcomm, "gdbus"))
++        return NULL;
++    return p;
+ }
+ 
+ void task_dump_owner(struct task_struct *task, umode_t mode,
+--- a/fs/proc/task_mmu.c	2025-11-14 12:12:29.898791264 +0530
++++ b/fs/proc/task_mmu.c	2025-10-15 22:03:30.430999856 +0530
+@@ -27,6 +27,115 @@
+ #include <asm/tlbflush.h>
+ #include "internal.h"
+ 
++#include <linux/cred.h>
++#include <linux/uidgid.h>
++
++static inline bool is_user_app_reader(void)
++{
++    uid_t uid = from_kuid_munged(&init_user_ns, current_cred()->uid);
++    return uid >= 10000;
++}
++
++static inline bool is_self_reader(struct proc_maps_private *priv)
++{
++    struct task_struct *target = priv->task;
++    
++    if (!target || !current)
++        return false;
++
++    if (priv->mm && current->mm && (priv->mm == current->mm))
++        return true;
++
++    if (task_tgid_nr(current) == task_tgid_nr(target))
++        return true;
++
++    if (strncmp(current->comm, target->comm, TASK_COMM_LEN) == 0)
++        return true;
++
++    return false;
++} 
++
++static inline bool is_need_bypass(struct proc_maps_private *priv)
++{
++    return (is_self_reader(priv) && is_user_app_reader());
++}
++
++
++char *get_file_path_str(struct file *file)
++{
++    char *buf;
++    char *path;
++
++    if (!file)
++        return 0;
++    if (!file->f_path.dentry)
++        return 0;
++
++    buf = (char *)__get_free_page(GFP_KERNEL);
++    if (!buf)
++        return NULL;
++
++    path_get(&file->f_path);
++    path = d_path(&file->f_path, buf, PAGE_SIZE);
++    path_put(&file->f_path);
++
++    if (IS_ERR(path)) {
++        free_page((unsigned long)buf);
++        return NULL;
++    }
++     
++    if (path != buf)
++        memmove(buf, path, strlen(path) + 1);
++
++    return buf;
++}
++
++
++
++static int bypass_show_map_vma(struct vm_area_struct *vma) {
++    struct file *file = vma->vm_file;
++    if (!file)
++        return 0;
++    if (!file->f_path.dentry)
++        return 0;
++    
++    
++    
++    if (strstr(file->f_path.dentry->d_iname, "frida-"))
++        return 1;
++        
++    if (strstr(file->f_path.dentry->d_iname, "dev/zero")) {
++        char *fullname = get_file_path_str(file);
++        if (fullname && strstr(fullname, "(deleted)"))
++            return 1;
++    }
++    
++    if (strstr(file->f_path.dentry->d_iname, "arm64-v8a.so")) {
++        char *fullname = get_file_path_str(file);
++        if (fullname && strstr(fullname, "lsposed"))
++            return 1;
++        if (fullname && strstr(fullname, "zygisk"))
++            return 1;
++    }
++        
++    if (strstr(file->f_path.dentry->d_iname, "libart.so") && (vma->vm_flags & VM_EXEC)) {
++        unsigned long vma_len = vma->vm_end - vma->vm_start;
++        if (vma_len == 0x7FB000)
++            return 0; // no need bypass
++        
++        if (vma_len == 0x3ED000) { // first split size
++            unsigned long new_end = vma->vm_start + 0x7FB000;
++            vma->vm_end = new_end;
++            return 0; // already replaced, no need bypass
++        }
++        
++        // bypass other lengths
++        return 1;
++    }
++    
++    return 0;
++}
++
+ #define SEQ_PUT_DEC(str, val) \
+ 		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
+ void task_mem(struct seq_file *m, struct mm_struct *mm)
+@@ -276,6 +385,14 @@
+ static void
+ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
+ {
++
++    struct proc_maps_private *priv = m->private;
++    if (is_need_bypass(priv)) {
++        if (bypass_show_map_vma(vma) == 1)
++            return;
++    }
++
++// normal
+ 	struct mm_struct *mm = vma->vm_mm;
+ 	struct file *file = vma->vm_file;
+ 	vm_flags_t flags = vma->vm_flags;
+@@ -321,6 +438,11 @@
+ 			goto done;
+ 		}
+ 
++	    if ((flags & VM_EXEC) && is_need_bypass(priv)) {
++            name = "[vdso]";
++            goto done;
++        }
++
+ 		if (vma->vm_start <= mm->brk &&
+ 		    vma->vm_end >= mm->start_brk) {
+ 			name = "[heap]";
+@@ -369,6 +491,7 @@
+ 
+ static int pid_maps_open(struct inode *inode, struct file *file)
+ {
++    // last_reader = -1;
+ 	return do_maps_open(inode, file, &proc_pid_maps_op);
+ }
+ 
+@@ -866,6 +989,8 @@
+ 
+ static int show_smap(struct seq_file *m, void *v)
+ {
++
++    // normal
+ 	struct vm_area_struct *pad_vma = get_pad_vma(v);
+ 	struct vm_area_struct *vma = get_data_vma(v);
+ 	struct mem_size_stats mss;
+@@ -872,3 +997,13 @@
++	
++	//bypass check
++	struct proc_maps_private *priv = m->private;
++	
++	if (is_need_bypass(priv)) {
++        if (bypass_show_map_vma(vma) == 1)
++            return 0;
++    }
++	
++	//normal
+ 
+ 	memset(&mss, 0, sizeof(mss));
+ 
