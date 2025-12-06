@@ -120,11 +120,11 @@
 +        
 +    if (strstr(file->f_path.dentry->d_iname, "libart.so") && (vma->vm_flags & VM_EXEC)) {
 +        unsigned long vma_len = vma->vm_end - vma->vm_start;
-+        if (vma_len == 0x7FB000)
++        if (vma_len == 0x7BB000)
 +            return 0; // no need bypass
 +        
 +        if (vma_len == 0x3ED000) { // first split size
-+            unsigned long new_end = vma->vm_start + 0x7FB000;
++            unsigned long new_end = vma->vm_start + 0x7BB000;
 +            vma->vm_end = new_end;
 +            return 0; // already replaced, no need bypass
 +        }
