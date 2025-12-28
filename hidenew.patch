@@ -228,12 +228,14 @@
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
  			name = "[heap]";
-@@ -352,6 +532,31 @@
+@@ -352,6 +532,33 @@
  	struct vm_area_struct *pad_vma = get_pad_vma(v);
  	struct vm_area_struct *vma = get_data_vma(v);
  
 +
 +//////////////////////////       new libart merger
++
++    struct proc_maps_private *priv = m->private;
 +
 +    /* libart merge for user self reader */
 +if (is_need_bypass(priv) && is_libart_exec_vma(vma)) {
@@ -260,7 +262,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -369,6 +574,7 @@
+@@ -369,6 +576,7 @@
  
  static int pid_maps_open(struct inode *inode, struct file *file)
  {
@@ -268,7 +270,7 @@
  	return do_maps_open(inode, file, &proc_pid_maps_op);
  }
  
-@@ -866,6 +1072,8 @@
+@@ -866,6 +1074,8 @@
  
  static int show_smap(struct seq_file *m, void *v)
  {
@@ -277,7 +279,7 @@
  	struct vm_area_struct *pad_vma = get_pad_vma(v);
  	struct vm_area_struct *vma = get_data_vma(v);
  	struct mem_size_stats mss;
-@@ -872,3 +1080,13 @@
+@@ -872,3 +1082,13 @@
 +	
 +	//bypass check
 +	struct proc_maps_private *priv = m->private;
