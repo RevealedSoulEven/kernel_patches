@@ -193,7 +193,7 @@
 +    show_vma_header_prefix(m, start, end, flags, pgoff, dev, ino);
 +    seq_pad(m, ' ');
 +    seq_file_path(m, file, "\n");
-+    seq_putc(m, '\n')
++    seq_putc(m, '\n');
 +}
 +
 +////////////////////////////////////////////////////////////
