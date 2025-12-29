@@ -247,7 +247,7 @@
 +    /* libart merge for user self reader */
 +    if (is_need_bypass(priv) && is_libart_exec_vma(vma)) {
 +        if (!pad_vma || pad_vma->vm_end != vma->vm_start) {
-+            show_merged_libart_vma(m, vma);
++            show_merged_libart_vma(m, priv, vma);
 +        }
 +        show_map_pad_vma(vma, pad_vma, m, show_map_vma, false);
 +        return 0;
