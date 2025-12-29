@@ -1,4 +1,4 @@
---- a/fs/proc/internal.h	2025-12-28 22:34:08.019394747 +0530
+--- a/fs/proc/internal.h	2025-11-14 12:12:29.898791264 +0530
 +++ b/fs/proc/internal.h	2025-10-15 22:03:30.430999856 +0530
 @@ -127,7 +127,19 @@
  
@@ -21,9 +21,9 @@
  }
  
  void task_dump_owner(struct task_struct *task, umode_t mode,
---- a/fs/proc/task_mmu.c	2025-12-28 22:34:08.019394747 +0530
+--- a/fs/proc/task_mmu.c	2025-11-14 12:12:29.898791264 +0530
 +++ b/fs/proc/task_mmu.c	2025-10-15 22:03:30.430999856 +0530
-@@ -27,6 +27,118 @@
+@@ -27,6 +27,115 @@
  #include <asm/tlbflush.h>
  #include "internal.h"
  
@@ -117,7 +117,7 @@
 +        if (fullname && strstr(fullname, "zygisk"))
 +            return 1;
 +    }
-+        /* OLD LIBART MERGER
++        
 +    if (strstr(file->f_path.dentry->d_iname, "libart.so") && (vma->vm_flags & VM_EXEC)) {
 +        unsigned long vma_len = vma->vm_end - vma->vm_start;
 +        if (vma_len == 0x7BB000)
@@ -132,78 +132,17 @@
 +        // bypass other lengths
 +        return 1;
 +    }
-+    */
 +    
 +    return 0;
 +}
 +
-+
-+
  #define SEQ_PUT_DEC(str, val) \
  		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
  void task_mem(struct seq_file *m, struct mm_struct *mm)
-@@ -273,6 +385,60 @@
- 	seq_putc(m, ' ');
- }
- 
-+
-+
-+//////////////////////////////      NEW LIBART MERGE
-+
-+static inline bool is_libart_exec_vma(struct vm_area_struct *vma)
-+{
-+    if (!vma->vm_file)
-+        return false;
-+
-+    if (!(vma->vm_flags & VM_EXEC))
-+        return false;
-+
-+    return strstr(vma->vm_file->f_path.dentry->d_iname, "libart.so");
-+}
-+
-+static void show_merged_libart_vma(struct seq_file *m,
-+                                   struct proc_maps_private *priv,
-+                                   struct vm_area_struct *vma)
-+{
-+    struct vm_area_struct *next;
-+
-+    unsigned long start = vma->vm_start;
-+    unsigned long end = vma->vm_end;
-+
-+    struct file *file = vma->vm_file;
-+    struct inode *inode = file_inode(file);
-+    vm_flags_t flags = vma->vm_flags;
-+    unsigned long ino = inode->i_ino;
-+    dev_t dev = inode->i_sb->s_dev;
-+    unsigned long long pgoff = ((loff_t)vma->vm_pgoff) << PAGE_SHIFT;
-+
-+    /* walk forward and merge */
-+    while ((next = vma_next(&priv->iter))) {
-+        if (next->vm_file != file)
-+            break;
-+        if (!(next->vm_flags & VM_EXEC))
-+            break;
-+        if (next->vm_start != end)
-+            break;
-+
-+        end = next->vm_end;
-+    }
-+
-+    /* print merged entry */
-+    show_vma_header_prefix(m, start, end, flags, pgoff, dev, ino);
-+    seq_pad(m, ' ');
-+    seq_file_path(m, file, "\n");
-+    seq_putc(m, '\n');
-+}
-+
-+////////////////////////////////////////////////////////////
-+
-+
-+
+@@ -276,6 +385,14 @@
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +445,11 @@
 +
 +    struct proc_maps_private *priv = m->private;
 +    if (is_need_bypass(priv)) {
@@ -215,7 +154,7 @@
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -321,6 +495,11 @@
+@@ -321,6 +438,11 @@
  			goto done;
  		}
  
@@ -227,41 +166,7 @@
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
  			name = "[heap]";
-@@ -352,6 +531,33 @@
- 	struct vm_area_struct *pad_vma = get_pad_vma(v);
- 	struct vm_area_struct *vma = get_data_vma(v);
- 
-+
-+//////////////////////////       new libart merger
-+
-+    struct proc_maps_private *priv = m->private;
-+
-+    /* libart merge for user self reader */
-+if (is_need_bypass(priv) && is_libart_exec_vma(vma)) {
-+
-+    /*
-+     * Only print merged libart at the HEAD of a run.
-+     * pad_vma tells us whether this VMA is contiguous with previous.
-+     */
-+    if (!pad_vma || pad_vma->vm_end != vma->vm_start) {
-+        show_merged_libart_vma(m, priv, vma);
-+    }
-+
-+    /*
-+     * ALWAYS print padding VMAs, otherwise output breaks
-+     */
-+    show_map_pad_vma(vma, pad_vma, m, show_map_vma, false);
-+    return 0;
-+}
-+
-+
-+//////////////////////////////////////////////////////////////////
-+
-+
- 	if (vma_pages(vma))
- 		show_map_vma(m, vma);
- 
-@@ -369,6 +575,7 @@
+@@ -369,6 +491,7 @@
  
  static int pid_maps_open(struct inode *inode, struct file *file)
  {
@@ -269,7 +174,7 @@
  	return do_maps_open(inode, file, &proc_pid_maps_op);
  }
  
-@@ -866,6 +1073,8 @@
+@@ -866,6 +989,8 @@
  
  static int show_smap(struct seq_file *m, void *v)
  {
@@ -278,7 +183,7 @@
  	struct vm_area_struct *pad_vma = get_pad_vma(v);
  	struct vm_area_struct *vma = get_data_vma(v);
  	struct mem_size_stats mss;
-@@ -872,3 +1081,13 @@
+@@ -872,3 +997,13 @@
 +	
 +	//bypass check
 +	struct proc_maps_private *priv = m->private;
