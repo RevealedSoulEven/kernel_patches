@@ -1,0 +1,26 @@
+--- a/fs/proc/base.c	2025-12-28 06:28:12.000000000 -0500
++++ b/fs/proc/base.c	2025-12-28 02:14:17.386870635 -0500
+@@ -973,6 +973,23 @@
+ 		size_t this_len, max_len;
+ 		int retval;
+ 
++#ifdef CONFIG_KSU_SUSFS_SUS_MAP
++		vma = find_vma(mm, addr);
++		if (vma && vma->vm_file) {
++			struct inode *inode = file_inode(vma->vm_file);
++			if (unlikely(inode->i_mapping->flags & BIT_SUS_MAPS) && susfs_is_current_proc_umounted()) {
++				if (write) {
++					copied = -EFAULT;
++				} else {
++					copied = -EIO;
++				}
++				*ppos = addr;
++				mmput(mm);
++				goto free;
++			}
++		}
++#endif
++
+ 		if (src >= (env_end - env_start))
+ 			break;
+ 
