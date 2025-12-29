@@ -21,6 +21,14 @@
  }
  
  void task_dump_owner(struct task_struct *task, umode_t mode,
+@@ -290,6 +302,7 @@
+ 	struct task_struct *task;
+ 	struct mm_struct *mm;
+ 	struct vma_iterator iter;
++	bool libart_rx_printed;
+ #ifdef CONFIG_NUMA
+ 	struct mempolicy *task_mempolicy;
+ #endif
 --- a/fs/proc/task_mmu.c	2025-12-28 22:34:08.019394747 +0530
 +++ b/fs/proc/task_mmu.c	2025-10-15 22:03:30.430999856 +0530
 @@ -27,6 +27,118 @@
@@ -233,7 +241,7 @@
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
  			name = "[heap]";
-@@ -352,6 +537,24 @@
+@@ -352,6 +537,25 @@
  	struct vm_area_struct *pad_vma = get_pad_vma(v);
  	struct vm_area_struct *vma = get_data_vma(v);
  
@@ -241,12 +249,13 @@
 +//////////////////////////       new libart merger
 +
 +    struct proc_maps_private *priv = m->private;
-+
-+    /* libart merge for user self reader */
++    
 +    if (is_need_bypass(priv) && is_libart_exec_vma(vma)) {
-+        if (!pad_vma || pad_vma->vm_end != vma->vm_start) {
++        if (!priv->libart_rx_printed) {
 +            show_merged_libart_vma(m, priv, vma);
++            priv->libart_rx_printed = true;
 +        }
++
 +        show_map_pad_vma(vma, pad_vma, m, show_map_vma, false);
 +        return 0;
 +    }
@@ -258,7 +267,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -369,6 +572,7 @@
+@@ -369,6 +573,7 @@
  
  static int pid_maps_open(struct inode *inode, struct file *file)
  {
@@ -266,7 +275,7 @@
  	return do_maps_open(inode, file, &proc_pid_maps_op);
  }
  
-@@ -866,6 +1070,8 @@
+@@ -866,6 +1071,8 @@
  
  static int show_smap(struct seq_file *m, void *v)
  {
@@ -275,7 +284,7 @@
  	struct vm_area_struct *pad_vma = get_pad_vma(v);
  	struct vm_area_struct *vma = get_data_vma(v);
  	struct mem_size_stats mss;
-@@ -872,3 +1078,13 @@
+@@ -872,3 +1079,13 @@
 +	
 +	//bypass check
 +	struct proc_maps_private *priv = m->private;
