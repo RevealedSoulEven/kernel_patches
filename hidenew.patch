@@ -142,7 +142,7 @@
  #define SEQ_PUT_DEC(str, val) \
  		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
  void task_mem(struct seq_file *m, struct mm_struct *mm)
-@@ -273,6 +385,68 @@
+@@ -273,6 +385,67 @@
  	seq_putc(m, ' ');
  }
  
@@ -179,21 +179,19 @@
 +    unsigned long long pgoff =
 +        ((loff_t)vma->vm_pgoff) << PAGE_SHIFT;
 +
-+    /*
-+     * Clone iterator starting AFTER current VMA
-+     * This does NOT touch priv->iter
-+     */
 +    iter = priv->iter;
 +
 +    while ((tmp = vma_next(&iter))) {
++
 +        if (tmp->vm_file != file)
 +            break;
 +        if (!(tmp->vm_flags & VM_EXEC))
 +            break;
-+        if (tmp->vm_start != end)
-+            break;
 +
-+        end = tmp->vm_end;
++        if (tmp->vm_start < start)
++            start = tmp->vm_start;
++        if (tmp->vm_end > end)
++            end = tmp->vm_end;
 +    }
 +
 +    show_vma_header_prefix(m, start, end, flags, pgoff, dev, ino);
@@ -204,6 +202,7 @@
 +
 +
 +
++
 +////////////////////////////////////////////////////////////
 +
 +
@@ -211,7 +210,7 @@
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +453,11 @@
+@@ -279,3 +452,11 @@
 +
 +    struct proc_maps_private *priv = m->private;
 +    if (is_need_bypass(priv)) {
@@ -223,7 +222,7 @@
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -321,6 +503,11 @@
+@@ -321,6 +502,11 @@
  			goto done;
  		}
  
@@ -235,7 +234,7 @@
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
  			name = "[heap]";
-@@ -352,6 +539,24 @@
+@@ -352,6 +538,24 @@
  	struct vm_area_struct *pad_vma = get_pad_vma(v);
  	struct vm_area_struct *vma = get_data_vma(v);
  
@@ -260,7 +259,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -369,6 +574,7 @@
+@@ -369,6 +573,7 @@
  
  static int pid_maps_open(struct inode *inode, struct file *file)
  {
@@ -268,7 +267,7 @@
  	return do_maps_open(inode, file, &proc_pid_maps_op);
  }
  
-@@ -866,6 +1072,8 @@
+@@ -866,6 +1071,8 @@
  
  static int show_smap(struct seq_file *m, void *v)
  {
@@ -277,7 +276,7 @@
  	struct vm_area_struct *pad_vma = get_pad_vma(v);
  	struct vm_area_struct *vma = get_data_vma(v);
  	struct mem_size_stats mss;
-@@ -872,3 +1080,13 @@
+@@ -872,3 +1079,13 @@
 +	
 +	//bypass check
 +	struct proc_maps_private *priv = m->private;
