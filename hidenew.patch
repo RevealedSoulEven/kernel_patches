@@ -228,10 +228,10 @@
  			goto done;
  		}
  
-+	    if ((flags & VM_EXEC) && is_need_bypass(priv)) {
++	    /*if ((flags & VM_EXEC) && is_need_bypass(priv)) {
 +            name = "[vdso]";
 +            goto done;
-+        }
++        }*/
 +
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
