@@ -21,11 +21,12 @@
  }
  
  void task_dump_owner(struct task_struct *task, umode_t mode,
-@@ -290,6 +302,7 @@
+@@ -290,6 +302,8 @@
  	struct task_struct *task;
  	struct mm_struct *mm;
  	struct vma_iterator iter;
 +	bool libart_rx_printed;
++	bool need_bypass;
  #ifdef CONFIG_NUMA
  	struct mempolicy *task_mempolicy;
  #endif
@@ -133,7 +134,17 @@
  #define SEQ_PUT_DEC(str, val) \
  		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
  void task_mem(struct seq_file *m, struct mm_struct *mm)
-@@ -273,6 +368,76 @@
+@@ -149,6 +244,9 @@
+ 	/* See m_next(). Zero at the start or after lseek. */
+ 	if (last_addr == -1UL)
+ 		return NULL;
++		
++	// is_need_bypass check
++	priv->need_bypass = is_need_bypass(priv);
+ 
+ 	priv->task = get_proc_task(priv->inode);
+ 	if (!priv->task)
+@@ -273,6 +371,74 @@
  	seq_putc(m, ' ');
  }
  
@@ -148,8 +159,6 @@
 +               "%08lx-%08lx ---p 00000000 00:00 0\n",
 +               start, end);
 +}
-+
-+
 +
 +
 +//////////////////////////////      NEW LIBART MERGE
@@ -210,10 +219,10 @@
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +444,13 @@
+@@ -279,3 +445,13 @@
 +
 +    struct proc_maps_private *priv = m->private;
-+    if (is_need_bypass(priv)) {
++    if (priv->need_bypass) {
 +        if (bypass_show_map_vma(vma) == 1) {
 +            show_anon_noperm_vma(m, vma);
 +            return;
@@ -224,19 +233,19 @@
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -321,6 +496,11 @@
+@@ -321,6 +497,11 @@
  			goto done;
  		}
  
-+	    /*if ((flags & VM_EXEC) && is_need_bypass(priv)) {
++	    if ((flags & VM_EXEC) && priv->need_bypass) {
 +            name = "[vdso]";
 +            goto done;
-+        }*/
++        }
 +
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
  			name = "[heap]";
-@@ -352,6 +532,25 @@
+@@ -352,6 +533,25 @@
  	struct vm_area_struct *pad_vma = get_pad_vma(v);
  	struct vm_area_struct *vma = get_data_vma(v);
  
@@ -245,7 +254,7 @@
 +
 +    struct proc_maps_private *priv = m->private;
 +    
-+    if (is_need_bypass(priv) && is_libart_exec_vma(vma)) {
++    if (priv->need_bypass && is_libart_exec_vma(vma)) {
 +        if (!priv->libart_rx_printed) {
 +            show_merged_libart_vma(m, priv, vma);
 +            priv->libart_rx_printed = true;
@@ -262,7 +271,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -369,6 +568,7 @@
+@@ -369,6 +569,7 @@
  
  static int pid_maps_open(struct inode *inode, struct file *file)
  {
@@ -270,7 +279,7 @@
  	return do_maps_open(inode, file, &proc_pid_maps_op);
  }
  
-@@ -866,6 +1066,8 @@
+@@ -866,6 +1067,8 @@
  
  static int show_smap(struct seq_file *m, void *v)
  {
@@ -279,14 +288,14 @@
  	struct vm_area_struct *pad_vma = get_pad_vma(v);
  	struct vm_area_struct *vma = get_data_vma(v);
  	struct mem_size_stats mss;
-@@ -872,4 +1074,17 @@
+@@ -872,4 +1075,17 @@
 +	
 +	//bypass check
-+	struct proc_maps_private *priv = m->private;
 +	
++	struct proc_maps_private *priv = m->private;
 +	bool bypassed = false;
  
-+    if (is_need_bypass(priv) && bypass_show_map_vma(vma)) {
++    if (priv->need_bypass && bypass_show_map_vma(vma)) {
 +        show_anon_noperm_vma(m, vma);
 +        bypassed = true;
 +    }
@@ -297,7 +306,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -877,7 +1092,8 @@
+@@ -877,7 +1093,8 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
