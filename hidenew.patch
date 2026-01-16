@@ -1,6 +1,6 @@
 --- a/fs/proc/internal.h	2025-12-28 22:34:08.019394747 +0530
-+++ b/fs/proc/internal.h	2025-10-15 22:03:30.430999856 +0530
-@@ -127,7 +127,19 @@
++++ b/fs/proc/internal.h	2026-01-16 04:50:54.361268784 +0530
+@@ -141,7 +141,19 @@
  
  static inline struct task_struct *get_proc_task(const struct inode *inode)
  {
@@ -21,7 +21,7 @@
  }
  
  void task_dump_owner(struct task_struct *task, umode_t mode,
-@@ -290,6 +302,8 @@
+@@ -304,6 +316,8 @@
  	struct task_struct *task;
  	struct mm_struct *mm;
  	struct vma_iterator iter;
@@ -31,7 +31,7 @@
  	struct mempolicy *task_mempolicy;
  #endif
 --- a/fs/proc/task_mmu.c	2025-12-28 22:34:08.019394747 +0530
-+++ b/fs/proc/task_mmu.c	2025-10-15 22:03:30.430999856 +0530
++++ b/fs/proc/task_mmu.c	2026-01-16 04:50:54.361268784 +0530
 @@ -27,6 +27,101 @@
  #include <asm/tlbflush.h>
  #include "internal.h"
@@ -144,10 +144,11 @@
  
  	mm = priv->mm;
  	if (!mm || !mmget_not_zero(mm)) {
-@@ -273,6 +371,74 @@
+@@ -273,6 +371,76 @@
  	seq_putc(m, ' ');
  }
  
++
 +static void show_anon_noperm_vma(struct seq_file *m,
 +                                 struct vm_area_struct *vma)
 +{
@@ -216,10 +217,11 @@
 +
 +
 +
++
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +445,13 @@
+@@ -279,3 +447,13 @@
 +
 +    struct proc_maps_private *priv = m->private;
 +    if (priv->need_bypass) {
@@ -233,25 +235,25 @@
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -321,6 +497,11 @@
+@@ -320,6 +498,11 @@
+ 			name = "[vdso]";
  			goto done;
  		}
- 
-+	    if ((flags & VM_EXEC) && priv->need_bypass) {
++		
++		if ((flags & VM_EXEC) && priv->need_bypass) {
 +            name = "[vdso]";
 +            goto done;
 +        }
-+
+ 
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
- 			name = "[heap]";
-@@ -352,6 +533,25 @@
- 	struct vm_area_struct *pad_vma = get_pad_vma(v);
- 	struct vm_area_struct *vma = get_data_vma(v);
- 
-+
+@@ -350,7 +533,24 @@
+ static int show_map(struct seq_file *m, void *v)
+ {
+ 	struct vm_area_struct *vma = v;
++	
 +//////////////////////////       new libart merger
-+
+ 
 +    struct proc_maps_private *priv = m->private;
 +    
 +    if (priv->need_bypass && is_libart_exec_vma(vma)) {
@@ -260,35 +262,24 @@
 +            priv->libart_rx_printed = true;
 +        }
 +
-+        show_map_pad_vma(vma, pad_vma, m, show_map_vma, false);
++        show_map_pad_vma(vma, m, show_map_vma, false);
 +        return 0;
 +    }
 +
 +
 +//////////////////////////////////////////////////////////////////
 +
-+
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -369,6 +569,7 @@
- 
- static int pid_maps_open(struct inode *inode, struct file *file)
- {
-+    // last_reader = -1;
- 	return do_maps_open(inode, file, &proc_pid_maps_op);
- }
- 
-@@ -866,6 +1067,8 @@
+@@ -880,9 +1080,24 @@
  
  static int show_smap(struct seq_file *m, void *v)
  {
 +
 +    // normal
- 	struct vm_area_struct *pad_vma = get_pad_vma(v);
- 	struct vm_area_struct *vma = get_data_vma(v);
+ 	struct vm_area_struct *vma = v;
  	struct mem_size_stats mss;
-@@ -872,4 +1075,17 @@
 +	
 +	//bypass check
 +	
@@ -301,18 +292,20 @@
 +    }
 +
 +	
-+	//normal
++	// normal
 +
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -877,7 +1093,8 @@
+@@ -890,7 +1105,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
 -	show_map_vma(m, vma);
-+    if (!bypassed)
++    // bypassed
++	if (!bypassed)
 +    	show_map_vma(m, vma);
++    // normal
  
- 	SEQ_PUT_DEC("Size:           ", vma->vm_end - vma->vm_start);
+ 	SEQ_PUT_DEC("Size:           ", VMA_PAD_START(vma) - vma->vm_start);
  	SEQ_PUT_DEC(" kB\nKernelPageSize: ", vma_kernel_pagesize(vma));
