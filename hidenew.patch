@@ -1,5 +1,5 @@
---- a/fs/proc/internal.h	2025-12-28 22:34:08.019394747 +0530
-+++ b/fs/proc/internal.h	2026-01-16 04:50:54.361268784 +0530
+--- a/fs/proc/internal.h	2026-01-16 18:58:14.431030292 +0530
++++ b/fs/proc/internal.h	2026-01-25 09:25:51.506175767 +0530
 @@ -141,7 +141,19 @@
  
  static inline struct task_struct *get_proc_task(const struct inode *inode)
@@ -30,8 +30,8 @@
  #ifdef CONFIG_NUMA
  	struct mempolicy *task_mempolicy;
  #endif
---- a/fs/proc/task_mmu.c	2025-12-28 22:34:08.019394747 +0530
-+++ b/fs/proc/task_mmu.c	2026-01-16 04:50:54.361268784 +0530
+--- a/fs/proc/task_mmu.c	2026-01-16 18:58:14.431030292 +0530
++++ b/fs/proc/task_mmu.c	2026-01-25 09:25:51.506175767 +0530
 @@ -27,6 +27,101 @@
  #include <asm/tlbflush.h>
  #include "internal.h"
@@ -247,14 +247,41 @@
  
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
-@@ -350,7 +533,24 @@
+@@ -347,6 +530,24 @@
+ 	seq_putc(m, '\n');
+ }
+ 
++
++
++static inline bool skip_exec_vma(struct proc_maps_private *priv,
++                                 struct vm_area_struct *vma)
++{
++    if (!priv->need_bypass)
++        return false;
++
++    if (!(vma->vm_flags & VM_EXEC))
++        return false;
++
++    /* your policy here */
++    return true;
++}
++
++
++
++
  static int show_map(struct seq_file *m, void *v)
  {
  	struct vm_area_struct *vma = v;
+@@ -353,4 +554,26 @@
 +	
 +//////////////////////////       new libart merger
  
 +    struct proc_maps_private *priv = m->private;
++    
++    //bypass exec
++    if (skip_exec_vma(priv, vma))
++        return 0;
++    //
 +    
 +    if (priv->need_bypass && is_libart_exec_vma(vma)) {
 +        if (!priv->libart_rx_printed) {
@@ -272,7 +299,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -880,9 +1080,24 @@
+@@ -880,9 +1103,28 @@
  
  static int show_smap(struct seq_file *m, void *v)
  {
@@ -290,6 +317,10 @@
 +        show_anon_noperm_vma(m, vma);
 +        bypassed = true;
 +    }
++    
++    
++    if (skip_exec_vma(priv, vma))
++        return 0;
 +
 +	
 +	// normal
@@ -297,7 +328,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1105,10 @@
+@@ -890,7 +1132,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
