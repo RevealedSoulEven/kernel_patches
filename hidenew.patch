@@ -302,7 +302,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -880,9 +1106,28 @@
+@@ -880,9 +1106,27 @@
  
  static int show_smap(struct seq_file *m, void *v)
  {
@@ -313,12 +313,11 @@
 +	
 +	//bypass check
 +	
-+	if (skip_exec_vma(priv, vma))
-+        return 0;
-+    
-+	
 +	struct proc_maps_private *priv = m->private;
 +	bool bypassed = false;
++	
++	if (skip_exec_vma(priv, vma))
++        return 0;
  
 +    if (priv->need_bypass && bypass_show_map_vma(vma)) {
 +        show_anon_noperm_vma(m, vma);
@@ -331,7 +330,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1135,10 @@
+@@ -890,7 +1134,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
