@@ -258,13 +258,13 @@
 +    if (!priv->need_bypass)
 +        return false;
 +
-+    if (vma == get_gate_vma(vma->vm_mm))
-+        return false;
-+
-+    if (!(vma->vm_flags & VM_EXEC))
++    if (!vma->vm_mm)
 +        return false;
 +
 +    if (vma->vm_file)
++        return false;
++
++    if (!(vma->vm_flags & VM_EXEC))
 +        return false;
 +
 +    return true;
