@@ -241,7 +241,7 @@
  		}
 +		
 +		if ((flags & VM_EXEC) && priv->need_bypass) {
-+            name = "[byp]" + name;
++            name = "[byps]";
 +            goto done;
 +        }
  
