@@ -144,7 +144,7 @@
  
  	mm = priv->mm;
  	if (!mm || !mmget_not_zero(mm)) {
-@@ -273,6 +371,100 @@
+@@ -273,6 +371,105 @@
  	seq_putc(m, ' ');
  }
  
@@ -226,7 +226,12 @@
 +
 +    if (vma->vm_file)
 +        return false;
-+        
++
++    if (vma->vm_ops && vma->vm_ops->name) {
++        if (vma->vm_ops->name(vma))
++            return false;
++    }
++
 +    if (arch_vma_name(vma))
 +        return false;
 +
@@ -245,7 +250,7 @@
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +471,17 @@
+@@ -279,3 +476,17 @@
 +
 +    struct proc_maps_private *priv = m->private;
 +    if (priv->need_bypass) {
@@ -263,7 +268,7 @@
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -320,6 +526,11 @@
+@@ -320,6 +531,11 @@
  			name = "[vdso]";
  			goto done;
  		}
@@ -275,7 +280,7 @@
  
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
-@@ -347,6 +558,7 @@
+@@ -347,6 +563,7 @@
  	seq_putc(m, '\n');
  }
  
@@ -283,7 +288,7 @@
  static int show_map(struct seq_file *m, void *v)
  {
  	struct vm_area_struct *vma = v;
-@@ -353,4 +565,21 @@
+@@ -353,4 +570,21 @@
 +	
 +//////////////////////////       new libart merger
  
@@ -305,7 +310,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -880,9 +1109,33 @@
+@@ -880,9 +1114,33 @@
  
  static int show_smap(struct seq_file *m, void *v)
  {
@@ -339,7 +344,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1143,10 @@
+@@ -890,7 +1148,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
