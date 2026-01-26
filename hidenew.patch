@@ -334,7 +334,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -878,11 +1112,151 @@
+@@ -878,11 +1112,189 @@
  	trace_android_vh_show_smap(m, mss->writeback, mss->same, mss->huge);
  }
  
@@ -372,6 +372,43 @@
 +		mss->private_clean +
 +		mss->private_dirty;
 +}
++
++
++static void show_smap_flags_from_value(struct seq_file *m,
++				       vm_flags_t flags,
++				       unsigned long pad_pages)
++{
++	static const char mnemonics[BITS_PER_LONG][2] = {
++		[0 ... (BITS_PER_LONG-1)] = "??",
++		[ilog2(VM_READ)]  = "rd",
++		[ilog2(VM_WRITE)] = "wr",
++		[ilog2(VM_EXEC)]  = "ex",
++		[ilog2(VM_SHARED)] = "sh",
++		[ilog2(VM_MAYREAD)] = "mr",
++		[ilog2(VM_MAYWRITE)] = "mw",
++		[ilog2(VM_MAYEXEC)] = "me",
++		[ilog2(VM_HUGEPAGE)] = "hg",
++	};
++
++	size_t i;
++
++	seq_puts(m, "VmFlags: ");
++	for (i = 0; i < BITS_PER_LONG; i++) {
++		if (!mnemonics[i][0])
++			continue;
++		if (flags & (1UL << i)) {
++			seq_putc(m, mnemonics[i][0]);
++			seq_putc(m, mnemonics[i][1]);
++			seq_putc(m, ' ');
++		}
++	}
++
++	if (pad_pages)
++		seq_printf(m, "pad=%lukB", pad_pages << (PAGE_SHIFT - 10));
++
++	seq_putc(m, '\n');
++}
++
 +
 +//////////////////////////////////////////////
 +
@@ -470,10 +507,11 @@
 +    	seq_printf(m, "THPeligible:    %d\n",
 +    		   acc->thp_eligible);
 +    		   
-+    	vm_flags_t saved = vma->vm_flags;
-+        vma->vm_flags = acc->vm_flags;
-+        show_smap_vma_flags(m, vma);
-+        vma->vm_flags = saved;
++    	show_smap_flags_from_value(
++	        m,
++	        acc->vm_flags,
++	        vma_pad_pages(vma)
++        );
 +    
 +    	acc->printed = true;
 +    }
@@ -486,7 +524,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1264,10 @@
+@@ -890,7 +1302,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
