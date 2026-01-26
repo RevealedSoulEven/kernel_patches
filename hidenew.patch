@@ -426,8 +426,8 @@
 +	    return -ENOMEM;
 +    }
 +    
-+    acc->active  = false;
-+    acc->printed = false;
++    priv->libart_smaps->active  = false;
++	priv->libart_smaps->printed = false;
 +
 +	return 0;
  }
