@@ -21,12 +21,36 @@
  }
  
  void task_dump_owner(struct task_struct *task, umode_t mode,
-@@ -304,6 +316,8 @@
+@@ -299,6 +311,23 @@
+  * task_[no]mmu.c
+  */
+ struct mem_size_stats;
++
++struct libart_smaps_acc {
++	bool active;
++	bool printed;
++
++	unsigned long start;
++	unsigned long end;
++	vm_flags_t vm_flags;
++
++	unsigned long kernel_ps;
++	unsigned long mmu_ps;
++	int thp_eligible;
++
++	struct file *file;
++	struct mem_size_stats mss;
++};
++
+ struct proc_maps_private {
+ 	struct inode *inode;
  	struct task_struct *task;
+@@ -305,5 +334,8 @@
  	struct mm_struct *mm;
  	struct vma_iterator iter;
 +	bool libart_rx_printed;
 +	bool need_bypass;
++	struct libart_smaps_acc libart_smaps;
  #ifdef CONFIG_NUMA
  	struct mempolicy *task_mempolicy;
  #endif
@@ -310,8 +334,47 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -880,9 +1114,33 @@
+@@ -878,11 +1112,151 @@
+ 	trace_android_vh_show_smap(m, mss->writeback, mss->same, mss->huge);
+ }
  
++
++///////////////////    libart.so smap merger
++
++static void libart_cleanup_mss(struct mem_size_stats *mss)
++{
++	u64 priv_dirty = mss->private_dirty >> 10;
++	u64 anon = mss->anonymous >> 10;
++	u64 hook = priv_dirty + anon;
++
++	if (mss->shared_clean >= mss->anonymous)
++		mss->shared_clean -= mss->anonymous;
++	else
++		mss->shared_clean = 0;
++
++	if (mss->pss >= (hook << PSS_SHIFT))
++		mss->pss -= (hook << PSS_SHIFT);
++	else
++		mss->pss = 0;
++
++	if (mss->referenced >= (hook << 10))
++		mss->referenced -= (hook << 10);
++	else
++		mss->referenced = 0;
++
++	mss->private_dirty = 0;
++	mss->anonymous = 0;
++	mss->pss_dirty = 0;
++
++	mss->resident =
++		mss->shared_clean +
++		mss->shared_dirty +
++		mss->private_clean +
++		mss->private_dirty;
++}
++
++//////////////////////////////////////////////
++
  static int show_smap(struct seq_file *m, void *v)
  {
 +
@@ -338,13 +401,92 @@
 +        }
 +    }
 +    
++    
++    if (priv->need_bypass && is_libart_exec_vma(vma)) {
++    	struct libart_smaps_acc *acc = &priv->libart_smaps;
++    
++    	if (!acc->active) {
++    		acc->active = true;
++    		acc->start = vma->vm_start;
++    		acc->end = VMA_PAD_START(vma);
++    		acc->vm_flags = vma->vm_flags;
++    		acc->kernel_ps = vma_kernel_pagesize(vma);
++    		acc->mmu_ps = vma_mmu_pagesize(vma);
++    		acc->thp_eligible = hugepage_vma_check(vma, vma->vm_flags, true, false, true);
++    		acc->file = vma->vm_file;
++    		memset(&acc->mss, 0, sizeof(acc->mss));
++    	} else {
++    		acc->start = min(acc->start, vma->vm_start);
++    		acc->end = max(acc->end, VMA_PAD_START(vma));
++    		acc->kernel_ps = min(acc->kernel_ps,
++    				      vma_kernel_pagesize(vma));
++    		acc->mmu_ps = min(acc->mmu_ps,
++    				  vma_mmu_pagesize(vma));
++    		acc->thp_eligible = max(acc->thp_eligible,
++    			hugepage_vma_check(vma, vma->vm_flags, true, false, true));
++    	}
++    
++    	if (vma_pages(vma))
++    		smap_gather_stats(vma, &acc->mss, 0);
++    
++    	show_map_pad_vma(vma, m, show_smap, true);
++    	return 0;
++    }
++    
++    
++    if (priv->libart_smaps.active &&
++        !priv->libart_smaps.printed &&
++        !is_libart_exec_vma(vma)) {
++    
++    	struct libart_smaps_acc *acc = &priv->libart_smaps;
++    
++    	libart_cleanup_mss(&acc->mss);
++    
++    	show_vma_header_prefix(
++    		m,
++    		acc->start,
++    		acc->end,
++    		acc->vm_flags,
++    		0, 0, 0
++    	);
++    
++    	if (acc->file) {
++    		seq_pad(m, ' ');
++    		seq_file_path(m, acc->file, "\n");
++    	} else {
++    		seq_putc(m, '\n');
++    	}
++    
++    	SEQ_PUT_DEC("Size:           ",
++    		acc->end - acc->start);
++    	SEQ_PUT_DEC(" kB\nKernelPageSize: ",
++    		acc->kernel_ps);
++    	SEQ_PUT_DEC(" kB\nMMUPageSize:    ",
++    		acc->mmu_ps);
++    	seq_puts(m, " kB\n");
++    
++    	__show_smap(m, &acc->mss, false);
++    
++    	seq_printf(m, "THPeligible:    %d\n",
++    		   acc->thp_eligible);
++    		   
++    	vm_flags_t saved = vma->vm_flags;
++        vma->vm_flags = acc->vm_flags;
++        show_smap_vma_flags(m, vma);
++        vma->vm_flags = saved;
++    
++    	acc->printed = true;
++    }
++    
++    
++    
 +    		
 +	// normal
 +
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1148,10 @@
+@@ -890,7 +1264,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
