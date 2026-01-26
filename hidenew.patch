@@ -21,66 +21,22 @@
  }
  
  void task_dump_owner(struct task_struct *task, umode_t mode,
-@@ -298,7 +310,52 @@
- /*
+@@ -299,6 +311,9 @@
   * task_[no]mmu.c
   */
--struct mem_size_stats;
-+#define PSS_SHIFT 12
+ struct mem_size_stats;
 +
-+#ifdef CONFIG_PROC_PAGE_MONITOR
-+struct mem_size_stats {
-+	unsigned long resident;
-+	unsigned long shared_clean;
-+	unsigned long shared_dirty;
-+	unsigned long private_clean;
-+	unsigned long private_dirty;
-+	unsigned long referenced;
-+	unsigned long anonymous;
-+	unsigned long lazyfree;
-+	unsigned long anonymous_thp;
-+	unsigned long shmem_thp;
-+	unsigned long file_thp;
-+	unsigned long swap;
-+	unsigned long writeback;
-+	unsigned long same;
-+	unsigned long huge;
-+	unsigned long shared_hugetlb;
-+	unsigned long private_hugetlb;
-+	u64 pss;
-+	u64 pss_anon;
-+	u64 pss_file;
-+	u64 pss_shmem;
-+	u64 pss_dirty;
-+	u64 pss_locked;
-+	u64 swap_pss;
-+};
-+
-+struct libart_smaps_acc {
-+	bool active;
-+	bool printed;
-+
-+	unsigned long start;
-+	unsigned long end;
-+	vm_flags_t vm_flags;
-+
-+	unsigned long kernel_ps;
-+	unsigned long mmu_ps;
-+	int thp_eligible;
-+
-+	struct file *file;
-+	struct mem_size_stats mss;
-+};
++struct libart_smaps_acc;
 +
  struct proc_maps_private {
  	struct inode *inode;
  	struct task_struct *task;
-@@ -305,5 +362,8 @@
+@@ -305,5 +320,8 @@
  	struct mm_struct *mm;
  	struct vma_iterator iter;
 +	bool libart_rx_printed;
 +	bool need_bypass;
-+	struct libart_smaps_acc libart_smaps;
++	struct libart_smaps_acc *libart_smaps;
  #ifdef CONFIG_NUMA
  	struct mempolicy *task_mempolicy;
  #endif
@@ -198,7 +154,22 @@
  
  	mm = priv->mm;
  	if (!mm || !mmget_not_zero(mm)) {
-@@ -273,6 +371,105 @@
+@@ -225,6 +323,14 @@
+ 	struct seq_file *seq = file->private_data;
+ 	struct proc_maps_private *priv = seq->private;
+ 
++	// free our extension FIRST
++	if (priv->libart_smaps) {
++		kfree(priv->libart_smaps->mss);
++		kfree(priv->libart_smaps);
++		priv->libart_smaps = NULL;
++	}
++
++	// original logic
+ 	if (priv->mm)
+ 		mmdrop(priv->mm);
+ 
+@@ -273,6 +379,105 @@
  	seq_putc(m, ' ');
  }
  
@@ -304,7 +275,7 @@
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +476,17 @@
+@@ -279,3 +484,17 @@
 +
 +    struct proc_maps_private *priv = m->private;
 +    if (priv->need_bypass) {
@@ -322,7 +293,7 @@
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -320,6 +531,11 @@
+@@ -320,6 +539,11 @@
  			name = "[vdso]";
  			goto done;
  		}
@@ -334,7 +305,7 @@
  
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
-@@ -347,6 +563,7 @@
+@@ -347,6 +571,7 @@
  	seq_putc(m, '\n');
  }
  
@@ -342,7 +313,7 @@
  static int show_map(struct seq_file *m, void *v)
  {
  	struct vm_area_struct *vma = v;
-@@ -353,4 +570,21 @@
+@@ -353,4 +578,21 @@
 +	
 +//////////////////////////       new libart merger
  
@@ -364,43 +335,59 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -395,35 +629,7 @@
-  * 	- supports mapcount up to 2^24, or 16M;
-  * 	- supports PSS up to 2^52 bytes, or 4PB.
-  */
--#define PSS_SHIFT 12
+@@ -368,9 +610,25 @@
  
--#ifdef CONFIG_PROC_PAGE_MONITOR
--struct mem_size_stats {
--	unsigned long resident;
--	unsigned long shared_clean;
--	unsigned long shared_dirty;
--	unsigned long private_clean;
--	unsigned long private_dirty;
--	unsigned long referenced;
--	unsigned long anonymous;
--	unsigned long lazyfree;
--	unsigned long anonymous_thp;
--	unsigned long shmem_thp;
--	unsigned long file_thp;
--	unsigned long swap;
--	unsigned long writeback;
--	unsigned long same;
--	unsigned long huge;
--	unsigned long shared_hugetlb;
--	unsigned long private_hugetlb;
--	u64 pss;
--	u64 pss_anon;
--	u64 pss_file;
--	u64 pss_shmem;
--	u64 pss_dirty;
--	u64 pss_locked;
--	u64 swap_pss;
--};
+ static int pid_maps_open(struct inode *inode, struct file *file)
+ {
+-	return do_maps_open(inode, file, &proc_pid_maps_op);
++	int ret;
++	struct seq_file *m;
++	struct proc_maps_private *priv;
++
++	ret = do_maps_open(inode, file, &proc_pid_maps_op);
++	if (ret)
++		return ret;
++
++	m = file->private_data;
++	priv = m->private;
++	
++	priv->libart_smaps = kzalloc(sizeof(*priv->libart_smaps), GFP_KERNEL);
++	if (!priv->libart_smaps)
++		return -ENOMEM;
++
++	return 0;
+ }
  
++
+ const struct file_operations proc_pid_maps_operations = {
+ 	.open		= pid_maps_open,
+ 	.read		= seq_read,
+@@ -425,6 +683,24 @@
+ 	u64 swap_pss;
+ };
+ 
++struct libart_smaps_acc {
++	bool active;
++	bool printed;
++
++	unsigned long start;
++	unsigned long end;
++	vm_flags_t vm_flags;
++
++	unsigned long kernel_ps;
++	unsigned long mmu_ps;
++	int thp_eligible;
++
++	struct file *file;
++	struct mem_size_stats *mss;
++};
++
++
++
  static void smaps_page_accumulate(struct mem_size_stats *mss,
  		struct page *page, unsigned long size, unsigned long pss,
-@@ -878,11 +1084,189 @@
+ 		bool dirty, bool locked, bool private)
+@@ -878,11 +1154,194 @@
  	trace_android_vh_show_smap(m, mss->writeback, mss->same, mss->huge);
  }
  
@@ -440,6 +427,7 @@
 +}
 +
 +
++
 +static void show_smap_flags_from_value(struct seq_file *m,
 +				       vm_flags_t flags,
 +				       unsigned long pad_pages)
@@ -470,7 +458,8 @@
 +	}
 +
 +	if (pad_pages)
-+		seq_printf(m, "pad=%lukB", pad_pages << (PAGE_SHIFT - 10));
++		seq_printf(m, "pad=%lukB",
++			   pad_pages << (PAGE_SHIFT - 10));
 +
 +	seq_putc(m, '\n');
 +}
@@ -488,6 +477,7 @@
 +	//bypass check
 +	
 +	struct proc_maps_private *priv = m->private;
++	struct libart_smaps_acc *acc = priv->libart_smaps;
 +	bool bypassed = false;
 +	
 +	//if (skip_exec_vma(priv, vma))
@@ -505,82 +495,84 @@
 +    }
 +    
 +    
-+    if (priv->need_bypass && is_libart_exec_vma(vma)) {
-+    	struct libart_smaps_acc *acc = &priv->libart_smaps;
++	if (priv->need_bypass && is_libart_exec_vma(vma)) {
++
++		if (!acc->active) {
++			acc->active = true;
++			acc->start = vma->vm_start;
++			acc->end = VMA_PAD_START(vma);
++			acc->vm_flags = vma->vm_flags;
++			acc->kernel_ps = vma_kernel_pagesize(vma);
++			acc->mmu_ps = vma_mmu_pagesize(vma);
++			acc->thp_eligible =
++				hugepage_vma_check(vma, vma->vm_flags,
++						   true, false, true);
++			acc->file = vma->vm_file;
++
++			acc->mss = kzalloc(sizeof(*acc->mss), GFP_KERNEL);
++			if (!acc->mss)
++				return -ENOMEM;
++		} else {
++			acc->start = min(acc->start, vma->vm_start);
++			acc->end = max(acc->end, VMA_PAD_START(vma));
++			acc->kernel_ps = min(acc->kernel_ps,
++					      vma_kernel_pagesize(vma));
++			acc->mmu_ps = min(acc->mmu_ps,
++					  vma_mmu_pagesize(vma));
++			acc->thp_eligible = max(
++				acc->thp_eligible,
++				hugepage_vma_check(vma, vma->vm_flags,
++						   true, false, true));
++		}
++
++		if (vma_pages(vma))
++			smap_gather_stats(vma, acc->mss, 0);
++
++		show_map_pad_vma(vma, m, show_smap, true);
++		return 0;
++	}
++
 +    
-+    	if (!acc->active) {
-+    		acc->active = true;
-+    		acc->start = vma->vm_start;
-+    		acc->end = VMA_PAD_START(vma);
-+    		acc->vm_flags = vma->vm_flags;
-+    		acc->kernel_ps = vma_kernel_pagesize(vma);
-+    		acc->mmu_ps = vma_mmu_pagesize(vma);
-+    		acc->thp_eligible = hugepage_vma_check(vma, vma->vm_flags, true, false, true);
-+    		acc->file = vma->vm_file;
-+    		memset(&acc->mss, 0, sizeof(acc->mss));
-+    	} else {
-+    		acc->start = min(acc->start, vma->vm_start);
-+    		acc->end = max(acc->end, VMA_PAD_START(vma));
-+    		acc->kernel_ps = min(acc->kernel_ps,
-+    				      vma_kernel_pagesize(vma));
-+    		acc->mmu_ps = min(acc->mmu_ps,
-+    				  vma_mmu_pagesize(vma));
-+    		acc->thp_eligible = max(acc->thp_eligible,
-+    			hugepage_vma_check(vma, vma->vm_flags, true, false, true));
-+    	}
-+    
-+    	if (vma_pages(vma))
-+    		smap_gather_stats(vma, &acc->mss, 0);
-+    
-+    	show_map_pad_vma(vma, m, show_smap, true);
-+    	return 0;
-+    }
-+    
-+    
-+    if (priv->libart_smaps.active &&
-+        !priv->libart_smaps.printed &&
-+        !is_libart_exec_vma(vma)) {
-+    
-+    	struct libart_smaps_acc *acc = &priv->libart_smaps;
-+    
-+    	libart_cleanup_mss(&acc->mss);
-+    
-+    	show_vma_header_prefix(
-+    		m,
-+    		acc->start,
-+    		acc->end,
-+    		acc->vm_flags,
-+    		0, 0, 0
-+    	);
-+    
-+    	if (acc->file) {
-+    		seq_pad(m, ' ');
-+    		seq_file_path(m, acc->file, "\n");
-+    	} else {
-+    		seq_putc(m, '\n');
-+    	}
-+    
-+    	SEQ_PUT_DEC("Size:           ",
-+    		acc->end - acc->start);
-+    	SEQ_PUT_DEC(" kB\nKernelPageSize: ",
-+    		acc->kernel_ps);
-+    	SEQ_PUT_DEC(" kB\nMMUPageSize:    ",
-+    		acc->mmu_ps);
-+    	seq_puts(m, " kB\n");
-+    
-+    	__show_smap(m, &acc->mss, false);
-+    
-+    	seq_printf(m, "THPeligible:    %d\n",
-+    		   acc->thp_eligible);
-+    		   
-+    	show_smap_flags_from_value(
-+	        m,
-+	        acc->vm_flags,
-+	        vma_pad_pages(vma)
-+        );
-+    
-+    	acc->printed = true;
-+    }
++    if (acc->active && !acc->printed && !is_libart_exec_vma(vma)) {
++
++		libart_cleanup_mss(acc->mss);
++		show_vma_header_prefix(
++			m,
++			acc->start,
++			acc->end,
++			acc->vm_flags,
++			0, 0, 0
++		);
++
++		if (acc->file) {
++			seq_pad(m, ' ');
++			seq_file_path(m, acc->file, "\n");
++		} else {
++			seq_putc(m, '\n');
++		}
++
++		SEQ_PUT_DEC("Size:           ",
++			     acc->end - acc->start);
++		SEQ_PUT_DEC(" kB\nKernelPageSize: ",
++			     acc->kernel_ps);
++		SEQ_PUT_DEC(" kB\nMMUPageSize:    ",
++			     acc->mmu_ps);
++		seq_puts(m, " kB\n");
++
++		__show_smap(m, acc->mss, false);
++
++		seq_printf(m, "THPeligible:    %d\n",
++			   acc->thp_eligible);
++
++		show_smap_flags_from_value(
++			m,
++			acc->vm_flags,
++			vma_pad_pages(vma)
++		);
++
++		acc->printed = true;
++	}
++
 +    
 +    
 +    
@@ -590,7 +582,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1274,10 @@
+@@ -890,7 +1349,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
