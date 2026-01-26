@@ -241,7 +241,7 @@
  		}
 +		
 +		if ((flags & VM_EXEC) && priv->need_bypass) {
-+            name = "[vdso]";
++            name = "[byp]" + name;
 +            goto done;
 +        }
  
@@ -252,7 +252,7 @@
  }
  
 +
-+static inline bool skip_exec_vma(struct proc_maps_private *priv,
++/*static inline bool skip_exec_vma(struct proc_maps_private *priv,
 +                                 struct vm_area_struct *vma)
 +{
 +    if (!priv->need_bypass)
@@ -269,7 +269,7 @@
 +
 +    return true;
 +}
-+
++*/
 +
 +
  static int show_map(struct seq_file *m, void *v)
@@ -282,8 +282,8 @@
 +    struct proc_maps_private *priv = m->private;
 +    
 +    // skip exec
-+    if (skip_exec_vma(priv, vma))
-+        return 0;
++   // if (skip_exec_vma(priv, vma))
++      //  return 0;
 +    //
 +    
 +    if (priv->need_bypass && is_libart_exec_vma(vma)) {
@@ -316,8 +316,8 @@
 +	struct proc_maps_private *priv = m->private;
 +	bool bypassed = false;
 +	
-+	if (skip_exec_vma(priv, vma))
-+        return 0;
++	//if (skip_exec_vma(priv, vma))
++        //return 0;
  
 +    if (priv->need_bypass && bypass_show_map_vma(vma)) {
 +        show_anon_noperm_vma(m, vma);
