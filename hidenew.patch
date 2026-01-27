@@ -310,7 +310,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -878,11 +1111,181 @@
+@@ -878,11 +1111,165 @@
  	trace_android_vh_show_smap(m, mss->writeback, mss->same, mss->huge);
  }
  
@@ -322,7 +322,6 @@
 +static void accumulate_mem_stats(struct mem_size_stats *dst, struct mem_size_stats *src)
 +{
 +	dst->resident += src->resident;
-+	dst->pss += src->pss;
 +	dst->shared_clean += src->shared_clean;
 +	dst->shared_dirty += src->shared_dirty;
 +	dst->private_clean += src->private_clean;
@@ -330,46 +329,58 @@
 +	dst->referenced += src->referenced;
 +	dst->anonymous += src->anonymous;
 +	dst->lazyfree += src->lazyfree;
-+	dst->anon_thp += src->anon_thp;
++	dst->anonymous_thp += src->anonymous_thp;
 +	dst->shmem_thp += src->shmem_thp;
 +	dst->file_thp += src->file_thp;
 +	dst->swap += src->swap;
++	dst->writeback += src->writeback;
++	dst->same += src->same;
++	dst->huge += src->huge;
 +	dst->shared_hugetlb += src->shared_hugetlb;
 +	dst->private_hugetlb += src->private_hugetlb;
++
++	dst->pss += src->pss;
++	dst->pss_anon += src->pss_anon;
++	dst->pss_file += src->pss_file;
++	dst->pss_shmem += src->pss_shmem;
++	dst->pss_dirty += src->pss_dirty;
++	dst->pss_locked += src->pss_locked;
 +	dst->swap_pss += src->swap_pss;
-+	dst->locked += src->locked;
 +}
 +
 +static void sanitize_libart_stats(struct mem_size_stats *mss)
 +{
-+	u64 hook_total = mss->private_dirty + mss->anonymous;
++	unsigned long hook_pages = mss->private_dirty + mss->anonymous;
++	u64 hook_pss = (u64)hook_pages << PSS_SHIFT;
 +
 +	if (mss->shared_clean >= mss->anonymous)
 +		mss->shared_clean -= mss->anonymous;
 +	else
 +		mss->shared_clean = 0;
 +
-+	if (mss->pss >= hook_total)
-+		mss->pss -= hook_total;
++	if (mss->pss >= hook_pss)
++		mss->pss -= hook_pss;
 +	else
 +		mss->pss = 0;
 +
-+	if (mss->referenced >= hook_total)
-+		mss->referenced -= hook_total;
++	if (mss->referenced >= hook_pages)
++		mss->referenced -= hook_pages;
 +	else
 +		mss->referenced = 0;
 +
 +	mss->private_dirty = 0;
 +	mss->anonymous = 0;
++	mss->pss_dirty = 0;
++	mss->pss_anon = 0;
 +
-+	mss->resident = mss->shared_clean + 
-+			mss->shared_dirty + 
-+			mss->private_clean + 
++	mss->resident = mss->shared_clean +
++			mss->shared_dirty +
++			mss->private_clean +
 +			mss->private_dirty;
 +}
 +
-+static void show_merged_libart_smap(struct seq_file *m, 
-+				    struct proc_maps_private *priv, 
++static void show_merged_libart_smap(struct seq_file *m,
++				    struct proc_maps_private *priv,
 +				    struct vm_area_struct *vma)
 +{
 +	struct vma_iterator iter;
@@ -412,46 +423,18 @@
 +	SEQ_PUT_DEC("Size:           ", (end - start) >> 10);
 +	SEQ_PUT_DEC(" kB\nKernelPageSize: ", vma_kernel_pagesize(vma));
 +	SEQ_PUT_DEC(" kB\nMMUPageSize:    ", vma_mmu_pagesize(vma));
-+	
-+	seq_printf(m,
-+		   " kB\nRss:            %8lu kB"
-+		   "\nPss:            %8lu kB"
-+		   "\nShared_Clean:   %8lu kB"
-+		   "\nShared_Dirty:   %8lu kB"
-+		   "\nPrivate_Clean:  %8lu kB"
-+		   "\nPrivate_Dirty:  %8lu kB"
-+		   "\nReferenced:     %8lu kB"
-+		   "\nAnonymous:      %8lu kB"
-+		   "\nLazyFree:       %8lu kB"
-+		   "\nAnonHugePages:  %8lu kB"
-+		   "\nShmemPmdMapped: %8lu kB"
-+		   "\nFilePmdMapped:  %8lu kB"
-+		   "\nShared_Hugetlb: %8lu kB"
-+		   "\nPrivate_Hugetlb: %8lu kB"
-+		   "\nSwap:           %8lu kB"
-+		   "\nSwapPss:        %8lu kB"
-+		   "\nLocked:         %8lu kB\n",
-+		   mss_total.resident >> 10,
-+		   mss_total.pss >> 10,
-+		   mss_total.shared_clean >> 10,
-+		   mss_total.shared_dirty >> 10,
-+		   mss_total.private_clean >> 10,
-+		   mss_total.private_dirty >> 10,
-+		   mss_total.referenced >> 10,
-+		   mss_total.anonymous >> 10,
-+		   mss_total.lazyfree >> 10,
-+		   mss_total.anon_thp >> 10,
-+		   mss_total.shmem_thp >> 10,
-+		   mss_total.file_thp >> 10,
-+		   mss_total.shared_hugetlb >> 10,
-+		   mss_total.private_hugetlb >> 10,
-+		   mss_total.swap >> 10,
-+		   mss_total.swap_pss >> 10,
-+		   mss_total.locked >> 10);
-+		   
++	seq_puts(m, " kB\n");
++
++	__show_smap(m, &mss_total, false);
++
++	seq_printf(m, "THPeligible:    %d\n",
++		   hugepage_vma_check(vma, vma->vm_flags, true, false, true));
++
++	if (arch_pkeys_enabled())
++		seq_printf(m, "ProtectionKey:  %8u\n", vma_pkey(vma));
++
 +	show_smap_vma_flags(m, vma);
 +}
-+
 +
 +
 +/////////////////////////////////////////////
@@ -471,20 +454,21 @@
 +	
  
 +    if (priv->need_bypass) {
-+        if (bypass_show_map_vma(vma) || hide_exec_vma(priv, vma)) {
-+            show_anon_noperm_vma(m, vma);
-+            bypassed = true;
-+            vma->vm_flags &= ~(VM_EXEC | VM_MAYEXEC);
-+        }
 +        if (is_libart_exec_vma(vma)) {
 +			if (!priv->libart_smap_printed) {
 +				show_merged_libart_smap(m, priv, vma);
 +				priv->libart_smap_printed = true;
 +			}
-+			return 0; 
++			return 0;
 +		} else {
 +			priv->libart_smap_printed = false;
 +		}
++		
++        if (bypass_show_map_vma(vma) || hide_exec_vma(priv, vma)) {
++            show_anon_noperm_vma(m, vma);
++            bypassed = true;
++            vma->vm_flags &= ~(VM_EXEC | VM_MAYEXEC);
++        }
 +    }
 +    		
 +	// normal
@@ -492,7 +476,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1293,10 @@
+@@ -890,7 +1277,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
