@@ -313,7 +313,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -878,11 +1114,163 @@
+@@ -878,11 +1114,166 @@
  	trace_android_vh_show_smap(m, mss->writeback, mss->same, mss->huge);
  }
  
@@ -404,10 +404,13 @@
 +
 +	iter = priv->iter;
 +	while ((tmp = vma_next(&iter))) {
-+		if (tmp->vm_file != file) break;
-+		if (!(tmp->vm_flags & VM_EXEC)) break;
 +		if (tmp->vm_start != end) break;
-+
++		
++		if (tmp->vm_file) {
++			if (tmp->vm_file != file) break;
++			if (!(tmp->vm_flags & VM_EXEC)) break;
++		}
++		
 +		memset(&mss_tmp, 0, sizeof(mss_tmp));
 +		smap_gather_stats(tmp, &mss_tmp, 0);
 +		accumulate_mem_stats(&mss_total, &mss_tmp);
@@ -422,7 +425,7 @@
 +	seq_file_path(m, file, "");
 +	seq_putc(m, '\n');
 +
-+	SEQ_PUT_DEC("Size:           ", (end - start) >> 10);
++	SEQ_PUT_DEC("Size:           ", (end - start));
 +	SEQ_PUT_DEC(" kB\nKernelPageSize: ", vma_kernel_pagesize(vma));
 +	SEQ_PUT_DEC(" kB\nMMUPageSize:    ", vma_mmu_pagesize(vma));
 +	seq_puts(m, " kB\n");
@@ -477,7 +480,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1278,10 @@
+@@ -890,7 +1281,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
