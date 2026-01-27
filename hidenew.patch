@@ -144,7 +144,7 @@
  
  	mm = priv->mm;
  	if (!mm || !mmget_not_zero(mm)) {
-@@ -273,6 +370,105 @@
+@@ -273,6 +370,108 @@
  	seq_putc(m, ' ');
  }
  
@@ -171,6 +171,9 @@
 +
 +    if (!(vma->vm_flags & VM_EXEC))
 +        return false;
++        
++    if (!vma->vm_file->f_path.dentry)
++		return false;
 +
 +    return strstr(vma->vm_file->f_path.dentry->d_iname, "libart.so");
 +}
@@ -250,7 +253,7 @@
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +475,17 @@
+@@ -279,3 +478,17 @@
 +
 +    struct proc_maps_private *priv = m->private;
 +    if (priv->need_bypass) {
@@ -268,7 +271,7 @@
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -320,6 +530,11 @@
+@@ -320,6 +533,11 @@
  			name = "[vdso]";
  			goto done;
  		}
@@ -280,7 +283,7 @@
  
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
-@@ -347,6 +562,7 @@
+@@ -347,6 +565,7 @@
  	seq_putc(m, '\n');
  }
  
@@ -288,7 +291,7 @@
  static int show_map(struct seq_file *m, void *v)
  {
  	struct vm_area_struct *vma = v;
-@@ -353,4 +569,21 @@
+@@ -353,4 +572,21 @@
 +	
 +//////////////////////////       new libart merger
  
@@ -310,13 +313,12 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -878,11 +1111,164 @@
+@@ -878,11 +1114,163 @@
  	trace_android_vh_show_smap(m, mss->writeback, mss->same, mss->huge);
  }
  
 +
 +//////////////////////////       smaps libart merger
-+
 +
 +
 +static void accumulate_mem_stats(struct mem_size_stats *dst, struct mem_size_stats *src)
@@ -475,7 +477,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1276,10 @@
+@@ -890,7 +1278,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
