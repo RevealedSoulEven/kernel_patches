@@ -310,7 +310,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -878,11 +1111,165 @@
+@@ -878,11 +1111,164 @@
  	trace_android_vh_show_smap(m, mss->writeback, mss->same, mss->huge);
  }
  
@@ -467,7 +467,6 @@
 +        if (bypass_show_map_vma(vma) || hide_exec_vma(priv, vma)) {
 +            show_anon_noperm_vma(m, vma);
 +            bypassed = true;
-+            vma->vm_flags &= ~(VM_EXEC | VM_MAYEXEC);
 +        }
 +    }
 +    		
@@ -476,7 +475,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1277,10 @@
+@@ -890,7 +1276,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
