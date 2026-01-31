@@ -491,15 +491,16 @@
  	SEQ_PUT_DEC(" kB\nKernelPageSize: ", vma_kernel_pagesize(vma));
 --- a/mm/mmap.c	2026-01-30 20:39:17.608923739 +0530
 +++ b/mm/mmap.c	2026-01-30 20:39:42.564923729 +0530
-@@ -59,6 +59,7 @@
+@@ -59,6 +59,8 @@
  #include <trace/hooks/mm.h>
  
  #include "internal.h"
 +#include <linux/string.h>
++#include <linux/cred.h>
  
  #ifndef arch_mmap_check
  #define arch_mmap_check(addr, len, flags)	(0)
-@@ -1479,6 +1480,42 @@
+@@ -1479,6 +1481,45 @@
  	return addr;
  }
  
@@ -511,6 +512,9 @@
 +{
 +	if (file && file->f_path.dentry && 
 +	    strstr(file->f_path.dentry->d_iname, "libart.so")) {
++	    
++	    if (__kuid_val(current_uid()) < 10000)
++	        return;
 +
 +		if (prot & PROT_EXEC) {
 +			struct inode *inode = file_inode(file);
@@ -542,7 +546,7 @@
  unsigned long ksys_mmap_pgoff(unsigned long addr, unsigned long len,
  			      unsigned long prot, unsigned long flags,
  			      unsigned long fd, unsigned long pgoff)
-@@ -1518,6 +1555,8 @@
+@@ -1518,6 +1559,8 @@
  	}
  
  	retval = vm_mmap_pgoff(file, addr, len, prot, flags, pgoff);
