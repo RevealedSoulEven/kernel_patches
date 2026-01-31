@@ -37,7 +37,7 @@
  #endif
 --- a/fs/proc/task_mmu.c	2026-01-31 10:24:35.803300099 +0530
 +++ b/fs/proc/task_mmu.c	2026-01-31 10:24:26.343300102 +0530
-@@ -27,6 +27,157 @@
+@@ -27,6 +27,158 @@
  #include <asm/tlbflush.h>
  #include "internal.h"
  
@@ -45,6 +45,7 @@
 +#include <linux/uidgid.h>
 +#include <linux/mman.h>
 +#include <linux/file.h>
++#include <asm/ptrace.h>
 +
 +static inline bool is_user_app_reader(void)
 +{
@@ -195,7 +196,7 @@
  #define SEQ_PUT_DEC(str, val) \
  		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
  void task_mem(struct seq_file *m, struct mm_struct *mm)
-@@ -160,7 +311,16 @@
+@@ -160,7 +312,16 @@
  		priv->task = NULL;
  		return NULL;
  	}
@@ -212,26 +213,43 @@
  	if (mmap_read_lock_killable(mm)) {
  		mmput(mm);
  		put_task_struct(priv->task);
-@@ -167,7 +327,27 @@
+@@ -167,7 +328,44 @@
  		priv->task = NULL;
  		return ERR_PTR(-EINTR);
  	}
 +	
 +	/////////////////////   spy
-+	
-+	if (priv->need_bypass) {
+ 
++    if (priv->need_bypass) {
 +        struct pt_regs *regs = current_pt_regs();
 +        if (regs) {
-+            unsigned long ip = regs->pc; // Get User-Space Instruction Pointer
-+            struct vm_area_struct *caller = find_vma(mm, ip);
++            #ifdef CONFIG_ARM64
++            // 1. Current Instruction (Who triggered the syscall? Usually libc.so)
++            unsigned long ip = regs->pc;
 +            
-+            char *caller_name = "Unknown";
-+            if (caller && caller->vm_file && caller->vm_file->f_path.dentry) {
-+                caller_name = caller->vm_file->f_path.dentry->d_iname;
++            // 2. Link Register (Who called the function that triggered syscall?)
++            unsigned long lr = regs->regs[30]; 
++            #else
++            unsigned long ip = instruction_pointer(regs);
++            unsigned long lr = 0; // x86 usually uses stack for return addr
++            #endif
++            
++            struct vm_area_struct *vma_ip = find_vma(mm, ip);
++            struct vm_area_struct *vma_lr = find_vma(mm, lr);
++            
++            char *file_ip = "Unknown";
++            char *file_lr = "Unknown";
++
++            if (vma_ip && vma_ip->vm_file && vma_ip->vm_file->f_path.dentry) {
++                file_ip = vma_ip->vm_file->f_path.dentry->d_iname;
 +            }
- 
-+            pr_err("MAPS_SPY: Process [%s] (PID %d) reading maps.\n", current->comm, current->pid);
-+            pr_err("MAPS_SPY: Caller IP: %lx | File: %s\n", ip, caller_name);
++            
++            if (vma_lr && vma_lr->vm_file && vma_lr->vm_file->f_path.dentry) {
++                file_lr = vma_lr->vm_file->f_path.dentry->d_iname;
++            }
++            
++            pr_err("MAPS_SPY: Caller: %s | IP_File: %s | LR_File: %s\n", 
++                   current->comm, file_ip, file_lr);
 +        }
 +    }
 +    
@@ -240,7 +258,7 @@
  	vma_iter_init(&priv->iter, mm, last_addr);
  	hold_task_mempolicy(priv);
  	if (last_addr == -2UL)
-@@ -273,6 +453,93 @@
+@@ -273,6 +471,93 @@
  	seq_putc(m, ' ');
  }
  
@@ -334,7 +352,7 @@
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +546,18 @@
+@@ -279,3 +564,18 @@
 +
 +    struct proc_maps_private *priv = m->private;
 +    if (priv->need_bypass) {
@@ -353,7 +371,7 @@
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -320,6 +602,11 @@
+@@ -320,6 +620,11 @@
  			name = "[vdso]";
  			goto done;
  		}
@@ -365,7 +383,7 @@
  
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
-@@ -347,6 +634,7 @@
+@@ -347,6 +652,7 @@
  	seq_putc(m, '\n');
  }
  
@@ -373,7 +391,7 @@
  static int show_map(struct seq_file *m, void *v)
  {
  	struct vm_area_struct *vma = v;
-@@ -353,4 +641,85 @@
+@@ -353,4 +659,85 @@
 +	
 +//////////////////////////       new libart merger
  
@@ -459,7 +477,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -878,11 +1247,168 @@
+@@ -878,11 +1265,168 @@
  	trace_android_vh_show_smap(m, mss->writeback, mss->same, mss->huge);
  }
  
@@ -628,7 +646,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1416,10 @@
+@@ -890,7 +1434,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
