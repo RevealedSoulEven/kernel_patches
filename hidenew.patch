@@ -144,7 +144,7 @@
  
  	mm = priv->mm;
  	if (!mm || !mmget_not_zero(mm)) {
-@@ -273,6 +370,105 @@
+@@ -273,6 +370,117 @@
  	seq_putc(m, ' ');
  }
  
@@ -243,6 +243,18 @@
 +    return true;
 +}
 +
++/////////////////////////// shadow hider
++
++static bool is_shadow_blob(struct vm_area_struct *vma)
++{
++	return (vma->vm_private_data == ((void*)0x13371337));
++}
++
++static inline bool is_libart_vma(struct vm_area_struct *vma)
++{
++	if (!vma->vm_file || !vma->vm_file->f_path.dentry) return false;
++	return strstr(vma->vm_file->f_path.dentry->d_iname, "libart.so");
++}
 +
 +////////////////////////////////////////////////////////////
 +
@@ -250,7 +262,7 @@
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +475,17 @@
+@@ -279,3 +487,20 @@
 +
 +    struct proc_maps_private *priv = m->private;
 +    if (priv->need_bypass) {
@@ -262,13 +274,16 @@
 +            show_anon_noperm_vma(m, vma);
 +            return;
 +        }
++        if (is_shadow_blob(vma)) {
++            return;
++        }
 +    }
 +
 +// normal
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -320,6 +530,11 @@
+@@ -320,6 +545,11 @@
  			name = "[vdso]";
  			goto done;
  		}
@@ -280,7 +295,7 @@
  
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
-@@ -347,6 +562,7 @@
+@@ -347,6 +577,7 @@
  	seq_putc(m, '\n');
  }
  
@@ -288,7 +303,7 @@
  static int show_map(struct seq_file *m, void *v)
  {
  	struct vm_area_struct *vma = v;
-@@ -353,4 +569,21 @@
+@@ -353,4 +584,20 @@
 +	
 +//////////////////////////       new libart merger
  
@@ -304,13 +319,12 @@
 +        return 0;
 +    }
 +
-+
 +//////////////////////////////////////////////////////////////////
 +
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -878,11 +1111,166 @@
+@@ -878,11 +1125,170 @@
  	trace_android_vh_show_smap(m, mss->writeback, mss->same, mss->huge);
  }
  
@@ -470,6 +484,10 @@
 +            show_anon_noperm_vma(m, vma);
 +            bypassed = true;
 +        }
++        
++        if (is_shadow_blob(vma)) {
++            return 0;
++        }
 +    }
 +    		
 +	// normal
@@ -477,7 +495,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1278,10 @@
+@@ -890,7 +1296,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
@@ -500,7 +518,7 @@
  
  #ifndef arch_mmap_check
  #define arch_mmap_check(addr, len, flags)	(0)
-@@ -1479,6 +1481,45 @@
+@@ -1479,6 +1481,48 @@
  	return addr;
  }
  
@@ -510,12 +528,13 @@
 +                             unsigned long prot, unsigned long flags, 
 +                             unsigned long pgoff)
 +{
-+	if (file && file->f_path.dentry && 
-+	    strstr(file->f_path.dentry->d_iname, "libart.so")) {
-+	    
-+	    if (__kuid_val(current_uid()) < 10000)
-+	        return;
-+
++	if (__kuid_val(current_uid()) < 10000) {
++		return;
++	}
++	if (!file || !file->f_path.dentry) {
++		return;
++	}
++	if (strstr(file->f_path.dentry->d_iname, "libart.so")) {
 +		if (prot & PROT_EXEC) {
 +			struct inode *inode = file_inode(file);
 +			unsigned long full_size = i_size_read(inode);
@@ -523,18 +542,20 @@
 +
 +			unsigned long safe_flags = (flags & ~MAP_FIXED);
 +			safe_flags |= MAP_PRIVATE;
++
 +			unsigned long shadow_addr = vm_mmap(file, 0, full_size, 
 +							    PROT_READ | PROT_EXEC, safe_flags, 0);
 +
 +			if (!IS_ERR_VALUE(shadow_addr)) {
 +				struct mm_struct *mm = current->mm;
 +				struct vm_area_struct *vma;
++
 +				if (mmap_read_lock_killable(mm)) return;
++
 +				vma = find_vma(mm, shadow_addr);
 +				if (vma && vma->vm_start == shadow_addr) {
-+					vma->vm_private_data = ((void*)0x13371337);
++					vma->vm_private_data = SHADOW_MAGIC_TAG;
 +				}
-+
 +				mmap_read_unlock(mm);
 +			}
 +		}
@@ -546,7 +567,7 @@
  unsigned long ksys_mmap_pgoff(unsigned long addr, unsigned long len,
  			      unsigned long prot, unsigned long flags,
  			      unsigned long fd, unsigned long pgoff)
-@@ -1518,6 +1559,8 @@
+@@ -1518,6 +1562,8 @@
  	}
  
  	retval = vm_mmap_pgoff(file, addr, len, prot, flags, pgoff);
