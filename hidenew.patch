@@ -21,7 +21,7 @@
  }
  
  void task_dump_owner(struct task_struct *task, umode_t mode,
-@@ -304,6 +316,10 @@
+@@ -304,6 +316,11 @@
  	struct task_struct *task;
  	struct mm_struct *mm;
  	struct vma_iterator iter;
@@ -29,12 +29,13 @@
 +	bool libart_smap_printed;
 +	bool need_bypass;
 +	bool shadow_spawned;
++	unsigned long shadow_start;
  #ifdef CONFIG_NUMA
  	struct mempolicy *task_mempolicy;
  #endif
 --- a/fs/proc/task_mmu.c	2026-01-31 10:24:35.803300099 +0530
 +++ b/fs/proc/task_mmu.c	2026-01-31 10:24:26.343300102 +0530
-@@ -27,6 +27,152 @@
+@@ -27,6 +27,167 @@
  #include <asm/tlbflush.h>
  #include "internal.h"
  
@@ -132,7 +133,25 @@
 +    return 0;
 +}
 +
-+static void ensure_shadow_art_exists(struct mm_struct *mm)
++
++
++/////////////////////////// shadow hider
++
++static inline bool is_libart_vma(struct vm_area_struct *vma)
++{
++	if (!vma->vm_file || !vma->vm_file->f_path.dentry) return false;
++	return strstr(vma->vm_file->f_path.dentry->d_iname, "libart.so");
++}
++
++static bool is_shadow_blob(struct vm_area_struct *vma)
++{
++	if ((vma->vm_flags & VM_EXEC) && vma->vm_pgoff == 0) {
++		if (is_libart_vma(vma)) return true;
++	}
++	return false;
++}
++
++static void ensure_shadow_art_exists(struct proc_maps_private *priv, struct mm_struct *mm)
 +{
 +	if (current->mm != mm) return;
 +	if (__kuid_val(current_uid()) < 10000) return;
@@ -145,13 +164,16 @@
 +
 +	VMA_ITERATOR(vmi, mm, 0);
 +	for_each_vma(vmi, vma) {
-+		if (vma->vm_private_data == ((void*)0x13371337)) {
-+			shadow_exists = true;
-+			break;
++		if ((vma->vm_flags & VM_EXEC) && vma->vm_pgoff == 0) {
++			if (is_libart_vma(vma)) {
++				shadow_exists = true;
++				priv->shadow_start = vma->vm_start;
++				break;
++			}
 +		}
 +		
-+		if (!art_file && vma->vm_file && vma->vm_file->f_path.dentry) {
-+			if (strstr(vma->vm_file->f_path.dentry->d_iname, "libart.so")) {
++		if (!art_file && is_libart_vma(vma)) {
++			if (!(vma->vm_flags & VM_EXEC) || vma->vm_pgoff > 0) {
 +				art_file = get_file(vma->vm_file);
 +			}
 +		}
@@ -168,13 +190,7 @@
 +						    MAP_PRIVATE, 0);
 +
 +		if (!IS_ERR_VALUE(shadow_addr)) {
-+			if (down_write_killable(&mm->mmap_lock) == 0) {
-+				vma = find_vma(mm, shadow_addr);
-+				if (vma && vma->vm_start == shadow_addr) {
-+					vma->vm_private_data = ((void*)0x13371337);
-+				}
-+				up_write(&mm->mmap_lock);
-+			}
++			priv->shadow_start = shadow_addr;
 +		}
 +		fput(art_file);
 +	} else if (art_file) {
@@ -187,7 +203,7 @@
  #define SEQ_PUT_DEC(str, val) \
  		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
  void task_mem(struct seq_file *m, struct mm_struct *mm)
-@@ -160,7 +306,16 @@
+@@ -160,7 +321,16 @@
  		priv->task = NULL;
  		return NULL;
  	}
@@ -196,7 +212,7 @@
 +	priv->need_bypass = is_need_bypass(priv);
  
 +	if (priv->need_bypass && !priv->shadow_spawned) {
-+		ensure_shadow_art_exists(mm);
++		ensure_shadow_art_exists(priv, mm);
 +		priv->shadow_spawned = true;
 +	}
 +	///////////////// original
@@ -204,7 +220,7 @@
  	if (mmap_read_lock_killable(mm)) {
  		mmput(mm);
  		put_task_struct(priv->task);
-@@ -273,6 +428,111 @@
+@@ -273,6 +443,104 @@
  	seq_putc(m, ' ');
  }
  
@@ -303,20 +319,13 @@
 +    return true;
 +}
 +
-+/////////////////////////// shadow hider
-+
-+static bool is_shadow_blob(struct vm_area_struct *vma)
-+{
-+	return (vma->vm_private_data == ((void*)0x13371337));
-+}
-+
 +////////////////////////////////////////////////////////////
 +
 +
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +539,20 @@
+@@ -279,3 +547,20 @@
 +
 +    struct proc_maps_private *priv = m->private;
 +    if (priv->need_bypass) {
@@ -328,8 +337,8 @@
 +            show_anon_noperm_vma(m, vma);
 +            return;
 +        }
-+        if (is_shadow_blob(vma)) {
-+            return;
++        if (priv->shadow_start != 0 && vma->vm_start == priv->shadow_start) {
++			return;
 +        }
 +    }
 +
@@ -337,7 +346,7 @@
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -320,6 +597,11 @@
+@@ -320,6 +605,11 @@
  			name = "[vdso]";
  			goto done;
  		}
@@ -349,7 +358,7 @@
  
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
-@@ -347,6 +629,7 @@
+@@ -347,6 +637,7 @@
  	seq_putc(m, '\n');
  }
  
@@ -357,7 +366,7 @@
  static int show_map(struct seq_file *m, void *v)
  {
  	struct vm_area_struct *vma = v;
-@@ -353,4 +636,20 @@
+@@ -353,4 +644,20 @@
 +	
 +//////////////////////////       new libart merger
  
@@ -378,7 +387,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -878,11 +1177,170 @@
+@@ -878,11 +1185,169 @@
  	trace_android_vh_show_smap(m, mss->writeback, mss->same, mss->huge);
  }
  
@@ -524,6 +533,9 @@
 +	
  
 +    if (priv->need_bypass) {
++        if (priv->shadow_start != 0 && vma->vm_start == priv->shadow_start) {
++            return 0;
++        }
 +        if (is_libart_exec_vma(vma)) {
 +			if (!priv->libart_smap_printed) {
 +				show_merged_libart_smap(m, priv, vma);
@@ -538,10 +550,6 @@
 +            show_anon_noperm_vma(m, vma);
 +            bypassed = true;
 +        }
-+        
-+        if (is_shadow_blob(vma)) {
-+            return 0;
-+        }
 +    }
 +    		
 +	// normal
@@ -549,7 +557,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1348,10 @@
+@@ -890,7 +1355,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
