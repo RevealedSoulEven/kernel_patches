@@ -35,7 +35,7 @@
  #endif
 --- a/fs/proc/task_mmu.c	2026-01-31 10:24:35.803300099 +0530
 +++ b/fs/proc/task_mmu.c	2026-01-31 10:24:26.343300102 +0530
-@@ -27,6 +27,159 @@
+@@ -27,6 +27,157 @@
  #include <asm/tlbflush.h>
  #include "internal.h"
  
@@ -137,10 +137,11 @@
 +
 +/////////////////////////// shadow hider
 +
-+static inline bool is_libart_vma(struct vm_area_struct *vma)
++static inline bool is_libart_vma(struct vm_area_struct *vma, bool require_exec)
 +{
-+	if (!vma->vm_file || !vma->vm_file->f_path.dentry) return false;
-+	return strstr(vma->vm_file->f_path.dentry->d_iname, "libart.so");
++    if (!vma->vm_file || !vma->vm_file->f_path.dentry) {return false; }
++    if (require_exec && !(vma->vm_flags & VM_EXEC)) { return false; }
++    return strstr(vma->vm_file->f_path.dentry->d_iname, "libart.so");
 +}
 +
 +static void ensure_shadow_art_exists(struct proc_maps_private *priv, struct mm_struct *mm)
@@ -156,15 +157,13 @@
 +
 +	VMA_ITERATOR(vmi, mm, 0);
 +	for_each_vma(vmi, vma) {
-+		if ((vma->vm_flags & VM_EXEC) && vma->vm_pgoff == 0) {
-+			if (is_libart_vma(vma)) {
-+				shadow_exists = true;
-+				priv->shadow_start = vma->vm_start;
-+				break;
-+			}
++		if (is_libart_vma(vma, false) && (vma->vm_flags & VM_EXEC) && vma->vm_pgoff == 0) {
++			shadow_exists = true;
++			priv->shadow_start = vma->vm_start;
++			break;
 +		}
 +		
-+		if (!art_file && is_libart_vma(vma)) {
++		if (!art_file && is_libart_vma(vma, false)) {
 +			if (!(vma->vm_flags & VM_EXEC) || vma->vm_pgoff > 0) {
 +				art_file = get_file(vma->vm_file);
 +			}
@@ -191,11 +190,10 @@
 +}
 +
 +
-+
  #define SEQ_PUT_DEC(str, val) \
  		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
  void task_mem(struct seq_file *m, struct mm_struct *mm)
-@@ -160,7 +313,16 @@
+@@ -160,7 +311,16 @@
  		priv->task = NULL;
  		return NULL;
  	}
@@ -212,7 +210,7 @@
  	if (mmap_read_lock_killable(mm)) {
  		mmput(mm);
  		put_task_struct(priv->task);
-@@ -273,6 +435,104 @@
+@@ -273,6 +433,90 @@
  	seq_putc(m, ' ');
  }
  
@@ -230,20 +228,6 @@
 +
 +
 +//////////////////////////////      NEW LIBART MERGE
-+
-+static inline bool is_libart_exec_vma(struct vm_area_struct *vma)
-+{
-+    if (!vma->vm_file)
-+        return false;
-+
-+    if (!(vma->vm_flags & VM_EXEC))
-+        return false;
-+        
-+    if (!vma->vm_file->f_path.dentry)
-+		return false;
-+
-+    return strstr(vma->vm_file->f_path.dentry->d_iname, "libart.so");
-+}
 +
 +static void show_merged_libart_vma(struct seq_file *m,
 +                                   struct proc_maps_private *priv,
@@ -317,7 +301,7 @@
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +539,20 @@
+@@ -279,3 +523,18 @@
 +
 +    struct proc_maps_private *priv = m->private;
 +    if (priv->need_bypass) {
@@ -329,16 +313,14 @@
 +            show_anon_noperm_vma(m, vma);
 +            return;
 +        }
-+        if (priv->shadow_start != 0 && vma->vm_start == priv->shadow_start) {
-+			return;
-+        }
++
 +    }
 +
 +// normal
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -320,6 +597,11 @@
+@@ -320,6 +579,11 @@
  			name = "[vdso]";
  			goto done;
  		}
@@ -350,7 +332,7 @@
  
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
-@@ -347,6 +629,7 @@
+@@ -347,6 +611,7 @@
  	seq_putc(m, '\n');
  }
  
@@ -358,13 +340,16 @@
  static int show_map(struct seq_file *m, void *v)
  {
  	struct vm_area_struct *vma = v;
-@@ -353,4 +636,20 @@
+@@ -353,4 +618,28 @@
 +	
 +//////////////////////////       new libart merger
  
 +    struct proc_maps_private *priv = m->private;
 +    
-+    if (priv->need_bypass && is_libart_exec_vma(vma)) {
++    if (priv->need_bypass && priv->shadow_start != 0 && vma->vm_start == priv->shadow_start) {
++        return 0;
++    }
++    if (priv->need_bypass && is_libart_vma(vma, true)) {
 +        if (!priv->libart_rx_printed) {
 +            show_merged_libart_vma(m, priv, vma);
 +            priv->libart_rx_printed = true;
@@ -373,13 +358,18 @@
 +        show_map_pad_vma(vma, m, show_map_vma, false);
 +        return 0;
 +    }
++    // If we are NOT processing a libart VMA, we must reset the state
++	// so that if another libart group appears later, we are ready to print it.
++	if (priv->need_bypass && !is_libart_vma(vma, true)) {
++		priv->libart_rx_printed = false;
++	}
 +
 +//////////////////////////////////////////////////////////////////
 +
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -878,11 +1177,169 @@
+@@ -878,11 +1167,168 @@
  	trace_android_vh_show_smap(m, mss->writeback, mss->same, mss->huge);
  }
  
@@ -522,13 +512,12 @@
 +	
 +	struct proc_maps_private *priv = m->private;
 +	bool bypassed = false;
-+	
  
 +    if (priv->need_bypass) {
 +        if (priv->shadow_start != 0 && vma->vm_start == priv->shadow_start) {
-+            return 0;
++			return 0;
 +        }
-+        if (is_libart_exec_vma(vma)) {
++        if (is_libart_vma(vma, true)) {
 +			if (!priv->libart_smap_printed) {
 +				show_merged_libart_smap(m, priv, vma);
 +				priv->libart_smap_printed = true;
@@ -549,7 +538,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1347,10 @@
+@@ -890,7 +1336,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
