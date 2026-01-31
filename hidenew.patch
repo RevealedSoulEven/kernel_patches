@@ -21,7 +21,7 @@
  }
  
  void task_dump_owner(struct task_struct *task, umode_t mode,
-@@ -304,6 +316,11 @@
+@@ -304,6 +316,13 @@
  	struct task_struct *task;
  	struct mm_struct *mm;
  	struct vma_iterator iter;
@@ -30,6 +30,8 @@
 +	bool need_bypass;
 +	bool shadow_spawned;
 +	unsigned long shadow_start;
++	bool last_was_libart;
++	long saved_libart_delta;
  #ifdef CONFIG_NUMA
  	struct mempolicy *task_mempolicy;
  #endif
@@ -343,7 +345,7 @@
  static int show_map(struct seq_file *m, void *v)
  {
  	struct vm_area_struct *vma = v;
-@@ -353,4 +621,54 @@
+@@ -353,4 +621,85 @@
 +	
 +//////////////////////////       new libart merger
  
@@ -353,36 +355,67 @@
 +        return 0;
 +    }
 +    if (priv->need_bypass && is_libart_vma(vma, false)) {
++		long current_delta = 0;
++		bool apply_delta = false;
++		bool is_libart = is_libart_vma(vma, false);
 +		
-+		long delta = 0;
-+		if (priv->shadow_start != 0) {
-+			unsigned long file_offset_bytes = vma->vm_pgoff << PAGE_SHIFT;
-+			unsigned long target_address = priv->shadow_start + file_offset_bytes;
-+			delta = (long)(target_address - vma->vm_start);
-+		}
-+
-+		if (vma->vm_flags & VM_EXEC) {
-+			if (!priv->libart_rx_printed) {
-+				show_merged_libart_vma(m, priv, vma, delta);
-+				priv->libart_rx_printed = true;
++		if (is_libart) {
++			if (priv->shadow_start != 0) {
++				unsigned long file_offset_bytes = vma->vm_pgoff << PAGE_SHIFT;
++				unsigned long target_address = priv->shadow_start + file_offset_bytes;
++				current_delta = (long)(target_address - vma->vm_start);
++				
++				priv->saved_libart_delta = current_delta;
++				priv->last_was_libart = true;
++				apply_delta = true;
 +			}
-+			show_map_pad_vma(vma, m, show_map_vma, false);
-+			return 0;
++		} else if (priv->last_was_libart && !vma->vm_file) {
++			current_delta = priv->saved_libart_delta;
++			priv->last_was_libart = false; 
++			apply_delta = true;
++		} else {
++			priv->last_was_libart = false;
 +		}
 +		
-+		if (delta != 0) {
++		if (apply_delta) {
++			if ((vma->vm_flags & VM_EXEC) && is_libart) {
++				if (!priv->libart_rx_printed) {
++					show_merged_libart_vma(m, priv, vma, current_delta);
++					priv->libart_rx_printed = true;
++				}
++				show_map_pad_vma(vma, m, show_map_vma, false);
++				return 0;
++			}
++			
++			const char *name_override = NULL;
++			if (!vma->vm_file) {
++				if (vma->vm_ops && vma->vm_ops->name)
++					name_override = vma->vm_ops->name(vma);
++				else
++					name_override = "[anon]";
++			}
++			
 +			show_vma_header_prefix(m, 
-+					       vma->vm_start + delta, 
-+					       vma->vm_end + delta, 
++					       vma->vm_start + current_delta, 
++					       vma->vm_end + current_delta, 
 +					       vma->vm_flags,
 +					       ((loff_t)vma->vm_pgoff) << PAGE_SHIFT,
-+					       file_inode(vma->vm_file)->i_sb->s_dev,
-+					       file_inode(vma->vm_file)->i_ino);
-+			
++					       vma->vm_file ? file_inode(vma->vm_file)->i_sb->s_dev : 0,
++					       vma->vm_file ? file_inode(vma->vm_file)->i_ino : 0);
++
 +			seq_pad(m, ' ');
-+			seq_file_path(m, vma->vm_file, "\n");
-+			seq_putc(m, '\n');
 +			
++			if (vma->vm_file) {
++				seq_file_path(m, vma->vm_file, "\n");
++			} else if (name_override) {
++				seq_puts(m, name_override);
++			} else {
++				struct anon_vma_name *anon_name = anon_vma_name(vma);
++				if (anon_name)
++					seq_printf(m, "[anon:%s]", anon_name->name);
++			}
++			
++			seq_putc(m, '\n');
 +			show_map_pad_vma(vma, m, show_map_vma, false);
 +			return 0;
 +		}
@@ -398,7 +431,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -878,11 +1196,168 @@
+@@ -878,11 +1227,168 @@
  	trace_android_vh_show_smap(m, mss->writeback, mss->same, mss->huge);
  }
  
@@ -567,7 +600,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1365,10 @@
+@@ -890,7 +1396,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
