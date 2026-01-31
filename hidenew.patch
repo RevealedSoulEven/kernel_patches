@@ -35,7 +35,7 @@
  #endif
 --- a/fs/proc/task_mmu.c	2026-01-31 10:24:35.803300099 +0530
 +++ b/fs/proc/task_mmu.c	2026-01-31 10:24:26.343300102 +0530
-@@ -27,6 +27,167 @@
+@@ -27,6 +27,159 @@
  #include <asm/tlbflush.h>
  #include "internal.h"
  
@@ -143,14 +143,6 @@
 +	return strstr(vma->vm_file->f_path.dentry->d_iname, "libart.so");
 +}
 +
-+static bool is_shadow_blob(struct vm_area_struct *vma)
-+{
-+	if ((vma->vm_flags & VM_EXEC) && vma->vm_pgoff == 0) {
-+		if (is_libart_vma(vma)) return true;
-+	}
-+	return false;
-+}
-+
 +static void ensure_shadow_art_exists(struct proc_maps_private *priv, struct mm_struct *mm)
 +{
 +	if (current->mm != mm) return;
@@ -203,7 +195,7 @@
  #define SEQ_PUT_DEC(str, val) \
  		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
  void task_mem(struct seq_file *m, struct mm_struct *mm)
-@@ -160,7 +321,16 @@
+@@ -160,7 +313,16 @@
  		priv->task = NULL;
  		return NULL;
  	}
@@ -220,7 +212,7 @@
  	if (mmap_read_lock_killable(mm)) {
  		mmput(mm);
  		put_task_struct(priv->task);
-@@ -273,6 +443,104 @@
+@@ -273,6 +435,104 @@
  	seq_putc(m, ' ');
  }
  
@@ -325,7 +317,7 @@
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +547,20 @@
+@@ -279,3 +539,20 @@
 +
 +    struct proc_maps_private *priv = m->private;
 +    if (priv->need_bypass) {
@@ -346,7 +338,7 @@
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -320,6 +605,11 @@
+@@ -320,6 +597,11 @@
  			name = "[vdso]";
  			goto done;
  		}
@@ -358,7 +350,7 @@
  
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
-@@ -347,6 +637,7 @@
+@@ -347,6 +629,7 @@
  	seq_putc(m, '\n');
  }
  
@@ -366,7 +358,7 @@
  static int show_map(struct seq_file *m, void *v)
  {
  	struct vm_area_struct *vma = v;
-@@ -353,4 +644,20 @@
+@@ -353,4 +636,20 @@
 +	
 +//////////////////////////       new libart merger
  
@@ -387,7 +379,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -878,11 +1185,169 @@
+@@ -878,11 +1177,169 @@
  	trace_android_vh_show_smap(m, mss->writeback, mss->same, mss->huge);
  }
  
@@ -557,7 +549,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1355,10 @@
+@@ -890,7 +1347,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
