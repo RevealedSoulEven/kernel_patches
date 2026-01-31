@@ -210,7 +210,7 @@
  	if (mmap_read_lock_killable(mm)) {
  		mmput(mm);
  		put_task_struct(priv->task);
-@@ -273,6 +433,90 @@
+@@ -273,6 +433,93 @@
  	seq_putc(m, ' ');
  }
  
@@ -231,39 +231,42 @@
 +
 +static void show_merged_libart_vma(struct seq_file *m,
 +                                   struct proc_maps_private *priv,
-+                                   struct vm_area_struct *vma)
++                                   struct vm_area_struct *vma,
++                                   long delta)
 +{
 +    struct vma_iterator iter;
-+    struct vm_area_struct *tmp;
++	struct vm_area_struct *tmp;
 +
-+    unsigned long start = vma->vm_start;
-+    unsigned long end   = vma->vm_end;
++	unsigned long start = vma->vm_start + delta;
++	unsigned long end   = vma->vm_end   + delta;
++	unsigned long real_end = vma->vm_end;
 +
-+    struct file *file = vma->vm_file;
-+    struct inode *inode = file_inode(file);
-+    vm_flags_t flags = vma->vm_flags;
-+    unsigned long ino = inode->i_ino;
-+    dev_t dev = inode->i_sb->s_dev;
-+    unsigned long long pgoff =
-+        ((loff_t)vma->vm_pgoff) << PAGE_SHIFT;
++	struct file *file = vma->vm_file;
++	struct inode *inode = file_inode(file);
++	vm_flags_t flags = vma->vm_flags;
++	unsigned long ino = inode->i_ino;
++	dev_t dev = inode->i_sb->s_dev;
++	unsigned long long pgoff =
++		((loff_t)vma->vm_pgoff) << PAGE_SHIFT;
 +
-+    iter = priv->iter;
++	iter = priv->iter;
 +
 +    while ((tmp = vma_next(&iter))) {
-+        if (tmp->vm_file != file)
-+            break;
-+        if (!(tmp->vm_flags & VM_EXEC))
-+            break;
-+        if (tmp->vm_start != end)
-+            break;
++		if (tmp->vm_file != file)
++			break;
++		if (!is_libart_vma(tmp, true))
++			break;
++		if (tmp->vm_start != real_end)
++			break;
 +
-+        end = tmp->vm_end;
-+    }
++		real_end = tmp->vm_end;
++		end = tmp->vm_end + delta;
++	}
 +
-+    show_vma_header_prefix(m, start, end, flags, pgoff, dev, ino);
-+    seq_pad(m, ' ');
-+    seq_file_path(m, file, "");
-+    seq_putc(m, '\n');
++	show_vma_header_prefix(m, start, end, flags, pgoff, dev, ino);
++	seq_pad(m, ' ');
++	seq_file_path(m, file, "");
++	seq_putc(m, '\n');
 +}
 +
 +
@@ -301,7 +304,7 @@
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +523,18 @@
+@@ -279,3 +526,18 @@
 +
 +    struct proc_maps_private *priv = m->private;
 +    if (priv->need_bypass) {
@@ -320,7 +323,7 @@
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -320,6 +579,11 @@
+@@ -320,6 +582,11 @@
  			name = "[vdso]";
  			goto done;
  		}
@@ -332,7 +335,7 @@
  
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
-@@ -347,6 +611,7 @@
+@@ -347,6 +614,7 @@
  	seq_putc(m, '\n');
  }
  
@@ -340,7 +343,7 @@
  static int show_map(struct seq_file *m, void *v)
  {
  	struct vm_area_struct *vma = v;
-@@ -353,4 +618,28 @@
+@@ -353,4 +621,53 @@
 +	
 +//////////////////////////       new libart merger
  
@@ -349,15 +352,40 @@
 +    if (priv->need_bypass && priv->shadow_start != 0 && vma->vm_start == priv->shadow_start) {
 +        return 0;
 +    }
-+    if (priv->need_bypass && is_libart_vma(vma, true)) {
-+        if (!priv->libart_rx_printed) {
-+            show_merged_libart_vma(m, priv, vma);
-+            priv->libart_rx_printed = true;
-+        }
++    if (priv->need_bypass && is_libart_vma(vma, false)) {
++		
++		long delta = 0;
++		if (priv->shadow_start != 0) {
++			unsigned long file_offset_bytes = vma->vm_pgoff << PAGE_SHIFT;
++			unsigned long target_address = priv->shadow_start + file_offset_bytes;
++			delta = (long)(target_address - vma->vm_start);
++		}
 +
-+        show_map_pad_vma(vma, m, show_map_vma, false);
-+        return 0;
-+    }
++		if (vma->vm_flags & VM_EXEC) {
++			if (!priv->libart_rx_printed) {
++				show_merged_libart_vma(m, priv, vma, delta);
++				priv->libart_rx_printed = true;
++			}
++			show_map_pad_vma(vma, m, show_map_vma, false);
++			return 0;
++		}
++		
++		if (delta != 0) {
++			show_vma_header_prefix(m, 
++					       vma->vm_start + delta, 
++					       vma->vm_end + delta, 
++					       vma->vm_flags,
++					       ((loff_t)vma->vm_pgoff) << PAGE_SHIFT,
++					       file_inode(vma->vm_file)->i_sb->s_dev,
++					       file_inode(vma->vm_file)->i_ino);
++			
++			seq_pad(m, ' ');
++			seq_file_path(m, vma->vm_file, "\n");
++			
++			show_map_pad_vma(vma, m, show_map_vma, false);
++			return 0;
++		}
++	}
 +    // If we are NOT processing a libart VMA, we must reset the state
 +	// so that if another libart group appears later, we are ready to print it.
 +	if (priv->need_bypass && !is_libart_vma(vma, true)) {
@@ -369,7 +397,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -878,11 +1167,168 @@
+@@ -878,11 +1195,168 @@
  	trace_android_vh_show_smap(m, mss->writeback, mss->same, mss->huge);
  }
  
@@ -538,7 +566,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1336,10 @@
+@@ -890,7 +1364,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
