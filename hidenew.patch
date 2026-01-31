@@ -144,7 +144,7 @@
  
  	mm = priv->mm;
  	if (!mm || !mmget_not_zero(mm)) {
-@@ -273,6 +370,108 @@
+@@ -273,6 +370,105 @@
  	seq_putc(m, ' ');
  }
  
@@ -155,7 +155,6 @@
 +    unsigned long start = vma->vm_start;
 +    unsigned long end   = vma->vm_end;
 +
-+    /* anonymous no-access filler */
 +    seq_printf(m,
 +               "%08lx-%08lx ---p 00000000 00:00 0\n",
 +               start, end);
@@ -248,12 +247,10 @@
 +////////////////////////////////////////////////////////////
 +
 +
-+
-+
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +478,17 @@
+@@ -279,3 +475,17 @@
 +
 +    struct proc_maps_private *priv = m->private;
 +    if (priv->need_bypass) {
@@ -271,7 +268,7 @@
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -320,6 +533,11 @@
+@@ -320,6 +530,11 @@
  			name = "[vdso]";
  			goto done;
  		}
@@ -283,7 +280,7 @@
  
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
-@@ -347,6 +565,7 @@
+@@ -347,6 +562,7 @@
  	seq_putc(m, '\n');
  }
  
@@ -291,7 +288,7 @@
  static int show_map(struct seq_file *m, void *v)
  {
  	struct vm_area_struct *vma = v;
-@@ -353,4 +572,21 @@
+@@ -353,4 +569,21 @@
 +	
 +//////////////////////////       new libart merger
  
@@ -313,7 +310,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -878,11 +1114,166 @@
+@@ -878,11 +1111,166 @@
  	trace_android_vh_show_smap(m, mss->writeback, mss->same, mss->huge);
  }
  
@@ -480,7 +477,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1281,10 @@
+@@ -890,7 +1278,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
@@ -514,24 +511,24 @@
 +{
 +	if (file && file->f_path.dentry && 
 +	    strstr(file->f_path.dentry->d_iname, "libart.so")) {
-+		
++
 +		if (prot & PROT_EXEC) {
 +			struct inode *inode = file_inode(file);
 +			unsigned long full_size = i_size_read(inode);
 +			full_size = (full_size + PAGE_SIZE - 1) & PAGE_MASK;
 +
++			unsigned long safe_flags = (flags & ~MAP_FIXED);
++			safe_flags |= MAP_PRIVATE;
 +			unsigned long shadow_addr = vm_mmap(file, 0, full_size, 
-+							    PROT_READ | PROT_EXEC, flags, 0);
++							    PROT_READ | PROT_EXEC, safe_flags, 0);
 +
 +			if (!IS_ERR_VALUE(shadow_addr)) {
 +				struct mm_struct *mm = current->mm;
 +				struct vm_area_struct *vma;
-+
 +				if (mmap_read_lock_killable(mm)) return;
-+
 +				vma = find_vma(mm, shadow_addr);
 +				if (vma && vma->vm_start == shadow_addr) {
-+					vma->vm_private_data = ((void*)0x13371337);
++					vma->vm_private_data = SHADOW_MAGIC_TAG;
 +				}
 +
 +				mmap_read_unlock(mm);
