@@ -1,5 +1,5 @@
---- a/fs/proc/internal.h	2026-01-30 20:39:17.608923739 +0530
-+++ b/fs/proc/internal.h	2026-01-30 20:39:42.564923729 +0530
+--- a/fs/proc/internal.h	2026-01-31 10:24:35.803300099 +0530
++++ b/fs/proc/internal.h	2026-01-31 10:24:26.343300102 +0530
 @@ -141,7 +141,19 @@
  
  static inline struct task_struct *get_proc_task(const struct inode *inode)
@@ -21,24 +21,27 @@
  }
  
  void task_dump_owner(struct task_struct *task, umode_t mode,
-@@ -304,6 +316,9 @@
+@@ -304,6 +316,10 @@
  	struct task_struct *task;
  	struct mm_struct *mm;
  	struct vma_iterator iter;
 +	bool libart_rx_printed;
 +	bool libart_smap_printed;
 +	bool need_bypass;
++	bool shadow_spawned;
  #ifdef CONFIG_NUMA
  	struct mempolicy *task_mempolicy;
  #endif
---- a/fs/proc/task_mmu.c	2026-01-30 20:39:17.608923739 +0530
-+++ b/fs/proc/task_mmu.c	2026-01-30 20:39:42.564923729 +0530
-@@ -27,6 +27,100 @@
+--- a/fs/proc/task_mmu.c	2026-01-31 10:24:35.803300099 +0530
++++ b/fs/proc/task_mmu.c	2026-01-31 10:24:26.343300102 +0530
+@@ -27,6 +27,152 @@
  #include <asm/tlbflush.h>
  #include "internal.h"
  
 +#include <linux/cred.h>
 +#include <linux/uidgid.h>
++#include <linux/mman.h>
++#include <linux/file.h>
 +
 +static inline bool is_user_app_reader(void)
 +{
@@ -101,7 +104,6 @@
 +}
 +
 +
-+
 +static int bypass_show_map_vma(struct vm_area_struct *vma) {
 +    struct file *file = vma->vm_file;
 +    if (!file)
@@ -130,21 +132,79 @@
 +    return 0;
 +}
 +
++static void ensure_shadow_art_exists(struct mm_struct *mm)
++{
++	if (current->mm != mm) return;
++	if (__kuid_val(current_uid()) < 10000) return;
++
++	struct vm_area_struct *vma;
++	struct file *art_file = NULL;
++	bool shadow_exists = false;
++
++	if (down_read_killable(&mm->mmap_lock)) return;
++
++	VMA_ITERATOR(vmi, mm, 0);
++	for_each_vma(vmi, vma) {
++		if (vma->vm_private_data == ((void*)0x13371337)) {
++			shadow_exists = true;
++			break;
++		}
++		
++		if (!art_file && vma->vm_file && vma->vm_file->f_path.dentry) {
++			if (strstr(vma->vm_file->f_path.dentry->d_iname, "libart.so")) {
++				art_file = get_file(vma->vm_file);
++			}
++		}
++	}
++	up_read(&mm->mmap_lock);
++
++	if (!shadow_exists && art_file) {
++		struct inode *inode = file_inode(art_file);
++		unsigned long full_size = i_size_read(inode);
++		full_size = (full_size + PAGE_SIZE - 1) & PAGE_MASK;
++
++		unsigned long shadow_addr = vm_mmap(art_file, 0, full_size, 
++						    PROT_READ | PROT_EXEC, 
++						    MAP_PRIVATE, 0);
++
++		if (!IS_ERR_VALUE(shadow_addr)) {
++			if (down_write_killable(&mm->mmap_lock) == 0) {
++				vma = find_vma(mm, shadow_addr);
++				if (vma && vma->vm_start == shadow_addr) {
++					vma->vm_private_data = ((void*)0x13371337);
++				}
++				up_write(&mm->mmap_lock);
++			}
++		}
++		fput(art_file);
++	} else if (art_file) {
++		fput(art_file);
++	}
++}
++
++
 +
  #define SEQ_PUT_DEC(str, val) \
  		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
  void task_mem(struct seq_file *m, struct mm_struct *mm)
-@@ -153,6 +247,9 @@
- 	priv->task = get_proc_task(priv->inode);
- 	if (!priv->task)
- 		return ERR_PTR(-ESRCH);
-+		
-+	// is_need_bypass check
+@@ -160,7 +306,16 @@
+ 		priv->task = NULL;
+ 		return NULL;
+ 	}
++	
++	///////////////// bypass
 +	priv->need_bypass = is_need_bypass(priv);
  
- 	mm = priv->mm;
- 	if (!mm || !mmget_not_zero(mm)) {
-@@ -273,6 +370,117 @@
++	if (priv->need_bypass && !priv->shadow_spawned) {
++		ensure_shadow_art_exists(mm);
++		priv->shadow_spawned = true;
++	}
++	///////////////// original
++
+ 	if (mmap_read_lock_killable(mm)) {
+ 		mmput(mm);
+ 		put_task_struct(priv->task);
+@@ -273,6 +428,111 @@
  	seq_putc(m, ' ');
  }
  
@@ -250,19 +310,13 @@
 +	return (vma->vm_private_data == ((void*)0x13371337));
 +}
 +
-+static inline bool is_libart_vma(struct vm_area_struct *vma)
-+{
-+	if (!vma->vm_file || !vma->vm_file->f_path.dentry) return false;
-+	return strstr(vma->vm_file->f_path.dentry->d_iname, "libart.so");
-+}
-+
 +////////////////////////////////////////////////////////////
 +
 +
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +487,20 @@
+@@ -279,3 +539,20 @@
 +
 +    struct proc_maps_private *priv = m->private;
 +    if (priv->need_bypass) {
@@ -283,7 +337,7 @@
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -320,6 +545,11 @@
+@@ -320,6 +597,11 @@
  			name = "[vdso]";
  			goto done;
  		}
@@ -295,7 +349,7 @@
  
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
-@@ -347,6 +577,7 @@
+@@ -347,6 +629,7 @@
  	seq_putc(m, '\n');
  }
  
@@ -303,7 +357,7 @@
  static int show_map(struct seq_file *m, void *v)
  {
  	struct vm_area_struct *vma = v;
-@@ -353,4 +584,20 @@
+@@ -353,4 +636,20 @@
 +	
 +//////////////////////////       new libart merger
  
@@ -324,7 +378,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -878,11 +1125,170 @@
+@@ -878,11 +1177,170 @@
  	trace_android_vh_show_smap(m, mss->writeback, mss->same, mss->huge);
  }
  
@@ -495,7 +549,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1296,10 @@
+@@ -890,7 +1348,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
@@ -507,72 +561,3 @@
  
  	SEQ_PUT_DEC("Size:           ", VMA_PAD_START(vma) - vma->vm_start);
  	SEQ_PUT_DEC(" kB\nKernelPageSize: ", vma_kernel_pagesize(vma));
---- a/mm/mmap.c	2026-01-30 20:39:17.608923739 +0530
-+++ b/mm/mmap.c	2026-01-30 20:39:42.564923729 +0530
-@@ -59,6 +59,8 @@
- #include <trace/hooks/mm.h>
- 
- #include "internal.h"
-+#include <linux/string.h>
-+#include <linux/cred.h>
- 
- #ifndef arch_mmap_check
- #define arch_mmap_check(addr, len, flags)	(0)
-@@ -1479,6 +1481,48 @@
- 	return addr;
- }
- 
-+///////////////////////////// add spawner
-+
-+static void spawn_shadow_art(struct file *file, unsigned long len, 
-+                             unsigned long prot, unsigned long flags, 
-+                             unsigned long pgoff)
-+{
-+	if (__kuid_val(current_uid()) < 10000) {
-+		return;
-+	}
-+	if (!file || !file->f_path.dentry) {
-+		return;
-+	}
-+	if (strstr(file->f_path.dentry->d_iname, "libart.so")) {
-+		if (prot & PROT_EXEC) {
-+			struct inode *inode = file_inode(file);
-+			unsigned long full_size = i_size_read(inode);
-+			full_size = (full_size + PAGE_SIZE - 1) & PAGE_MASK;
-+
-+			unsigned long safe_flags = (flags & ~MAP_FIXED);
-+			safe_flags |= MAP_PRIVATE;
-+
-+			unsigned long shadow_addr = vm_mmap(file, 0, full_size, 
-+							    PROT_READ | PROT_EXEC, safe_flags, 0);
-+
-+			if (!IS_ERR_VALUE(shadow_addr)) {
-+				struct mm_struct *mm = current->mm;
-+				struct vm_area_struct *vma;
-+
-+				if (mmap_read_lock_killable(mm)) return;
-+
-+				vma = find_vma(mm, shadow_addr);
-+				if (vma && vma->vm_start == shadow_addr) {
-+					vma->vm_private_data = ((void*)0x13371337);
-+				}
-+				mmap_read_unlock(mm);
-+			}
-+		}
-+	}
-+}
-+
-+///////////////////////////////////////
-+
- unsigned long ksys_mmap_pgoff(unsigned long addr, unsigned long len,
- 			      unsigned long prot, unsigned long flags,
- 			      unsigned long fd, unsigned long pgoff)
-@@ -1518,6 +1562,8 @@
- 	}
- 
- 	retval = vm_mmap_pgoff(file, addr, len, prot, flags, pgoff);
-+	if (!IS_ERR_VALUE(retval) && file)
-+		spawn_shadow_art(file, len, prot, flags, pgoff);
- out_fput:
- 	if (file)
- 		fput(file);
