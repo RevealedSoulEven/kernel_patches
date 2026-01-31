@@ -212,7 +212,35 @@
  	if (mmap_read_lock_killable(mm)) {
  		mmput(mm);
  		put_task_struct(priv->task);
-@@ -273,6 +433,93 @@
+@@ -167,7 +327,27 @@
+ 		priv->task = NULL;
+ 		return ERR_PTR(-EINTR);
+ 	}
++	
++	/////////////////////   spy
++	
++	if (priv->need_bypass) {
++        struct pt_regs *regs = current_pt_regs();
++        if (regs) {
++            unsigned long ip = regs->pc; // Get User-Space Instruction Pointer
++            struct vm_area_struct *caller = find_vma(mm, ip);
++            
++            char *caller_name = "Unknown";
++            if (caller && caller->vm_file && caller->vm_file->f_path.dentry) {
++                caller_name = caller->vm_file->f_path.dentry->d_iname;
++            }
+ 
++            pr_err("MAPS_SPY: Process [%s] (PID %d) reading maps.\n", current->comm, current->pid);
++            pr_err("MAPS_SPY: Caller IP: %lx | File: %s\n", ip, caller_name);
++        }
++    }
++    
++    ///////////////// original
++
+ 	vma_iter_init(&priv->iter, mm, last_addr);
+ 	hold_task_mempolicy(priv);
+ 	if (last_addr == -2UL)
+@@ -273,6 +453,93 @@
  	seq_putc(m, ' ');
  }
  
@@ -306,7 +334,7 @@
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +526,18 @@
+@@ -279,3 +546,18 @@
 +
 +    struct proc_maps_private *priv = m->private;
 +    if (priv->need_bypass) {
@@ -325,7 +353,7 @@
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -320,6 +582,11 @@
+@@ -320,6 +602,11 @@
  			name = "[vdso]";
  			goto done;
  		}
@@ -337,7 +365,7 @@
  
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
-@@ -347,6 +614,7 @@
+@@ -347,6 +634,7 @@
  	seq_putc(m, '\n');
  }
  
@@ -345,7 +373,7 @@
  static int show_map(struct seq_file *m, void *v)
  {
  	struct vm_area_struct *vma = v;
-@@ -353,4 +621,85 @@
+@@ -353,4 +641,85 @@
 +	
 +//////////////////////////       new libart merger
  
@@ -431,7 +459,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -878,11 +1227,168 @@
+@@ -878,11 +1247,168 @@
  	trace_android_vh_show_smap(m, mss->writeback, mss->same, mss->huge);
  }
  
@@ -600,7 +628,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1396,10 @@
+@@ -890,7 +1416,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
