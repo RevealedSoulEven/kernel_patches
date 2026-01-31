@@ -554,7 +554,7 @@
 +
 +				vma = find_vma(mm, shadow_addr);
 +				if (vma && vma->vm_start == shadow_addr) {
-+					vma->vm_private_data = SHADOW_MAGIC_TAG;
++					vma->vm_private_data = ((void*)0x13371337));;
 +				}
 +				mmap_read_unlock(mm);
 +			}
