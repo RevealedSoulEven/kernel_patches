@@ -213,7 +213,7 @@
  	if (mmap_read_lock_killable(mm)) {
  		mmput(mm);
  		put_task_struct(priv->task);
-@@ -167,7 +328,44 @@
+@@ -167,7 +328,65 @@
  		priv->task = NULL;
  		return ERR_PTR(-EINTR);
  	}
@@ -224,32 +224,53 @@
 +        struct pt_regs *regs = current_pt_regs();
 +        if (regs) {
 +            #ifdef CONFIG_ARM64
-+            // 1. Current Instruction (Who triggered the syscall? Usually libc.so)
-+            unsigned long ip = regs->pc;
 +            
-+            // 2. Link Register (Who called the function that triggered syscall?)
-+            unsigned long lr = regs->regs[30]; 
-+            #else
-+            unsigned long ip = instruction_pointer(regs);
-+            unsigned long lr = 0; // x86 usually uses stack for return addr
-+            #endif
-+            
-+            struct vm_area_struct *vma_ip = find_vma(mm, ip);
-+            struct vm_area_struct *vma_lr = find_vma(mm, lr);
-+            
-+            char *file_ip = "Unknown";
-+            char *file_lr = "Unknown";
++            unsigned long current_fp = regs->regs[29]; // Frame Pointer
++            unsigned long return_addr = 0;
++            int depth = 0;
++        
++            pr_err("MAPS_SPY: === Trace for %s (PID %d) ===\n", current->comm, current->pid);
 +
-+            if (vma_ip && vma_ip->vm_file && vma_ip->vm_file->f_path.dentry) {
-+                file_ip = vma_ip->vm_file->f_path.dentry->d_iname;
-+            }
++            // 1. Log the immediate instruction (Level 0)
++            struct vm_area_struct *vma = find_vma(mm, regs->pc);
++            char *name = (vma && vma->vm_file && vma->vm_file->f_path.dentry) ? 
++                      vma->vm_file->f_path.dentry->d_iname : "Unknown/Anon";
++            pr_err("MAPS_SPY: [0] IP: %lx | File: %s\n", regs->pc, name);
 +            
-+            if (vma_lr && vma_lr->vm_file && vma_lr->vm_file->f_path.dentry) {
-+                file_lr = vma_lr->vm_file->f_path.dentry->d_iname;
-+            }
++            // 2. Walk the stack for 5 more levels
++            while (current_fp && depth < 5) {
++                depth++;
 +            
-+            pr_err("MAPS_SPY: Caller: %s | IP_File: %s | LR_File: %s\n", 
-+                   current->comm, file_ip, file_lr);
++                // ARM64 Stack Frame Layout:
++                // [FP]     = Previous FP
++                // [FP + 8] = Return Address (LR)
++            
++                // Read Return Address (LR)
++                if (copy_from_user(&return_addr, (void __user *)(current_fp + 8), sizeof(return_addr))) {
++                    pr_err("MAPS_SPY: [%d] Stack Read Fail (LR)\n", depth);
++                    break;
++                }
++
++                // Resolve Name
++                vma = find_vma(mm, return_addr);
++                name = (vma && vma->vm_file && vma->vm_file->f_path.dentry) ? 
++                        vma->vm_file->f_path.dentry->d_iname : "Unknown/Anon";
++            
++                pr_err("MAPS_SPY: [%d] LR: %lx | File: %s\n", depth, return_addr, name);
++                
++                // Move to Previous Frame
++                unsigned long next_fp = 0;
++                if (copy_from_user(&next_fp, (void __user *)current_fp, sizeof(next_fp))) {
++                     pr_err("MAPS_SPY: [%d] Stack Read Fail (Next FP)\n", depth);
++                     break;
++                }
++            
++                // Sanity check to prevent infinite loops or garbage pointers
++                if (next_fp <= current_fp || next_fp == 0) break;
++                current_fp = next_fp;
++            }
++            pr_err("MAPS_SPY: =============================\n");
++            #endif
 +        }
 +    }
 +    
@@ -258,7 +279,7 @@
  	vma_iter_init(&priv->iter, mm, last_addr);
  	hold_task_mempolicy(priv);
  	if (last_addr == -2UL)
-@@ -273,6 +471,93 @@
+@@ -273,6 +492,93 @@
  	seq_putc(m, ' ');
  }
  
@@ -352,7 +373,7 @@
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -279,3 +564,18 @@
+@@ -279,3 +585,18 @@
 +
 +    struct proc_maps_private *priv = m->private;
 +    if (priv->need_bypass) {
@@ -371,7 +392,7 @@
  	struct mm_struct *mm = vma->vm_mm;
  	struct file *file = vma->vm_file;
  	vm_flags_t flags = vma->vm_flags;
-@@ -320,6 +620,11 @@
+@@ -320,6 +641,11 @@
  			name = "[vdso]";
  			goto done;
  		}
@@ -383,7 +404,7 @@
  
  		if (vma->vm_start <= mm->brk &&
  		    vma->vm_end >= mm->start_brk) {
-@@ -347,6 +652,7 @@
+@@ -347,6 +673,7 @@
  	seq_putc(m, '\n');
  }
  
@@ -391,7 +412,7 @@
  static int show_map(struct seq_file *m, void *v)
  {
  	struct vm_area_struct *vma = v;
-@@ -353,4 +659,85 @@
+@@ -353,4 +680,85 @@
 +	
 +//////////////////////////       new libart merger
  
@@ -477,7 +498,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -878,11 +1265,168 @@
+@@ -878,11 +1286,168 @@
  	trace_android_vh_show_smap(m, mss->writeback, mss->same, mss->huge);
  }
  
@@ -646,7 +667,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1434,10 @@
+@@ -890,7 +1455,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
