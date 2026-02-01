@@ -235,7 +235,7 @@
 +            struct vm_area_struct *vma = find_vma(mm, regs->pc);
 +            char *name = (vma && vma->vm_file && vma->vm_file->f_path.dentry) ? 
 +                      (char *)vma->vm_file->f_path.dentry->d_iname : "Unknown/Anon";
-+            pr_err("MAPS_SPY: [0] IP: %llx | File: %s\n", regs->pc, name);
++            pr_err("MAPS_SPY: [0] IP: %llx | File: %s\n", (u64)regs->pc, name);
 +            
 +            // 2. Walk the stack for 5 more levels
 +            while (current_fp && depth < 5) {
@@ -254,9 +254,9 @@
 +                // Resolve Name
 +                vma = find_vma(mm, return_addr);
 +                name = (vma && vma->vm_file && vma->vm_file->f_path.dentry) ? 
-+                    (char *)vma->vm_file->f_path.dentry->d_iname : "Unknown/Anon";
++                        (char *)vma->vm_file->f_path.dentry->d_iname : "Unknown/Anon";
 +            
-+                pr_err("MAPS_SPY: [%d] LR: %llx | File: %s\n", depth, return_addr, name);
++                pr_err("MAPS_SPY: [%d] LR: %llx | File: %s\n", depth, (u64)return_addr, name);
 +                
 +                // Move to Previous Frame
 +                unsigned long next_fp = 0;
