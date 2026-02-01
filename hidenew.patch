@@ -412,20 +412,39 @@
  static int show_map(struct seq_file *m, void *v)
  {
  	struct vm_area_struct *vma = v;
-@@ -353,4 +680,85 @@
+@@ -353,4 +680,102 @@
 +	
 +//////////////////////////       new libart merger
  
 +    struct proc_maps_private *priv = m->private;
 +    
-+    if (priv->need_bypass && priv->shadow_start != 0 && vma->vm_start == priv->shadow_start) {
-+        return 0;
-+    }
-+    if (priv->need_bypass && is_libart_vma(vma, false)) {
++    if (priv->need_bypass) {
++		struct pt_regs *regs = current_pt_regs();
++		if (regs) {
++			#ifdef CONFIG_ARM64
++			/* Check who called libc (Link Register) */
++			unsigned long lr = regs->regs[30];
++			struct vm_area_struct *caller_vma = find_vma(priv->mm, lr);
++
++			/* If Caller is Anonymous (No File) -> It is LSPosed -> Show REAL MAP */
++			if (!caller_vma || !caller_vma->vm_file) {
++				if (vma_pages(vma)) show_map_vma(m, vma);
++				show_map_pad_vma(vma, m, show_map_vma, false);
++				return 0;
++			}
++			#endif
++		}
++	}
++	if (priv->need_bypass && priv->shadow_start != 0 && vma->vm_start == priv->shadow_start) {
++		return 0;
++	}
++	
++	if (priv->need_bypass && (is_libart_vma(vma, false) || priv->last_was_libart)) {
++		
 +		long current_delta = 0;
 +		bool apply_delta = false;
 +		bool is_libart = is_libart_vma(vma, false);
-+		
++
 +		if (is_libart) {
 +			if (priv->shadow_start != 0) {
 +				unsigned long file_offset_bytes = vma->vm_pgoff << PAGE_SHIFT;
@@ -436,14 +455,14 @@
 +				priv->last_was_libart = true;
 +				apply_delta = true;
 +			}
-+		} else if (priv->last_was_libart && !vma->vm_file) {
++		}
++		else if (priv->last_was_libart && !vma->vm_file) {
 +			current_delta = priv->saved_libart_delta;
-+			priv->last_was_libart = false; 
 +			apply_delta = true;
-+		} else {
++		} 
++		else {
 +			priv->last_was_libart = false;
 +		}
-+		
 +		if (apply_delta) {
 +			if ((vma->vm_flags & VM_EXEC) && is_libart) {
 +				if (!priv->libart_rx_printed) {
@@ -453,7 +472,7 @@
 +				show_map_pad_vma(vma, m, show_map_vma, false);
 +				return 0;
 +			}
-+			
++
 +			const char *name_override = NULL;
 +			if (!vma->vm_file) {
 +				if (vma->vm_ops && vma->vm_ops->name)
@@ -461,7 +480,6 @@
 +				else
 +					name_override = "[anon]";
 +			}
-+			
 +			show_vma_header_prefix(m, 
 +					       vma->vm_start + current_delta, 
 +					       vma->vm_end + current_delta, 
@@ -471,7 +489,7 @@
 +					       vma->vm_file ? file_inode(vma->vm_file)->i_ino : 0);
 +
 +			seq_pad(m, ' ');
-+			
++
 +			if (vma->vm_file) {
 +				seq_file_path(m, vma->vm_file, "\n");
 +			} else if (name_override) {
@@ -481,7 +499,6 @@
 +				if (anon_name)
 +					seq_printf(m, "[anon:%s]", anon_name->name);
 +			}
-+			
 +			seq_putc(m, '\n');
 +			show_map_pad_vma(vma, m, show_map_vma, false);
 +			return 0;
@@ -498,7 +515,7 @@
  	if (vma_pages(vma))
  		show_map_vma(m, vma);
  
-@@ -878,11 +1286,168 @@
+@@ -878,11 +1303,168 @@
  	trace_android_vh_show_smap(m, mss->writeback, mss->same, mss->huge);
  }
  
@@ -667,7 +684,7 @@
  	memset(&mss, 0, sizeof(mss));
  
  	if (!vma_pages(vma))
-@@ -890,7 +1455,10 @@
+@@ -890,7 +1472,10 @@
  
  	smap_gather_stats(vma, &mss, 0);
  
