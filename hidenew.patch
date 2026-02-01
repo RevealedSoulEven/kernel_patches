@@ -234,7 +234,7 @@
 +            // 1. Log the immediate instruction (Level 0)
 +            struct vm_area_struct *vma = find_vma(mm, regs->pc);
 +            char *name = (vma && vma->vm_file && vma->vm_file->f_path.dentry) ? 
-+                      vma->vm_file->f_path.dentry->d_iname : "Unknown/Anon";
++                      (char *)vma->vm_file->f_path.dentry->d_iname : "Unknown/Anon";
 +            pr_err("MAPS_SPY: [0] IP: %lx | File: %s\n", regs->pc, name);
 +            
 +            // 2. Walk the stack for 5 more levels
@@ -254,7 +254,7 @@
 +                // Resolve Name
 +                vma = find_vma(mm, return_addr);
 +                name = (vma && vma->vm_file && vma->vm_file->f_path.dentry) ? 
-+                        vma->vm_file->f_path.dentry->d_iname : "Unknown/Anon";
++                    (char *)vma->vm_file->f_path.dentry->d_iname : "Unknown/Anon";
 +            
 +                pr_err("MAPS_SPY: [%d] LR: %lx | File: %s\n", depth, return_addr, name);
 +                
